@@ -1,0 +1,214 @@
+/* Importando fontes */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 220 20% 93%;
+  --foreground: 0 0% 20%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 20%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 20%;
+  --primary: 25 70% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 10% 96%;
+  --secondary-foreground: 240 10% 40%;
+  --muted: 240 10% 96%;
+  --muted-foreground: 240 5% 45%;
+  --accent: 240 10% 90%;
+  --accent-foreground: 250 50% 40%;
+  --destructive: 0 70% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 10% 88%;
+  --input: 240 10% 94%;
+  --ring: 25 70% 50%;
+  --radius: 0.75rem;
+  
+  /* Status colors */
+  --status-separacao: 210 80% 55%;
+  --status-transito: 250 60% 55%;
+  --status-anvisa: 40 90% 50%;
+  --status-problema: 0 75% 55%;
+  --status-atraso: 25 90% 55%;
+}
+
+.dark {
+  --background: 250 25% 18%;
+  --foreground: 0 0% 90%;
+  --card: 250 20% 22%;
+  --card-foreground: 0 0% 90%;
+  --popover: 250 20% 20%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 25 70% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 250 15% 25%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 250 15% 25%;
+  --muted-foreground: 0 0% 65%;
+  --accent: 250 20% 30%;
+  --accent-foreground: 240 30% 85%;
+  --destructive: 0 70% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 250 15% 30%;
+  --input: 250 15% 30%;
+  --ring: 25 70% 50%;
+  
+  /* Status colors - dark mode */
+  --status-separacao: 210 70% 50%;
+  --status-transito: 250 50% 55%;
+  --status-anvisa: 40 80% 50%;
+  --status-problema: 0 65% 50%;
+  --status-atraso: 25 80% 50%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Status badge colors */
+.status-separacao {
+  background-color: hsl(var(--status-separacao) / 0.15);
+  color: hsl(var(--status-separacao));
+  border-color: hsl(var(--status-separacao) / 0.3);
+}
+
+.status-transito {
+  background-color: hsl(var(--status-transito) / 0.15);
+  color: hsl(var(--status-transito));
+  border-color: hsl(var(--status-transito) / 0.3);
+}
+
+.status-anvisa {
+  background-color: hsl(var(--status-anvisa) / 0.15);
+  color: hsl(var(--status-anvisa));
+  border-color: hsl(var(--status-anvisa) / 0.3);
+}
+
+.status-problema {
+  background-color: hsl(var(--status-problema) / 0.15);
+  color: hsl(var(--status-problema));
+  border-color: hsl(var(--status-problema) / 0.3);
+}
+
+.status-atraso {
+  background-color: hsl(var(--status-atraso) / 0.15);
+  color: hsl(var(--status-atraso));
+  border-color: hsl(var(--status-atraso) / 0.3);
+}
+
+/* Card status borders */
+.card-separacao {
+  border-color: hsl(var(--status-separacao) / 0.4);
+}
+
+.card-transito {
+  border-color: hsl(var(--status-transito) / 0.4);
+}
+
+.card-anvisa {
+  border-color: hsl(var(--status-anvisa) / 0.4);
+}
+
+.card-problema {
+  border-color: hsl(var(--status-problema) / 0.4);
+}
+
+.card-atraso {
+  border-color: hsl(var(--status-atraso) / 0.4);
+}
+
+/* Icon backgrounds */
+.icon-bg-separacao {
+  background-color: hsl(var(--status-separacao) / 0.15);
+  color: hsl(var(--status-separacao));
+}
+
+.icon-bg-transito {
+  background-color: hsl(var(--status-transito) / 0.15);
+  color: hsl(var(--status-transito));
+}
+
+.icon-bg-anvisa {
+  background-color: hsl(var(--status-anvisa) / 0.15);
+  color: hsl(var(--status-anvisa));
+}
+
+.icon-bg-problema {
+  background-color: hsl(var(--status-problema) / 0.15);
+  color: hsl(var(--status-problema));
+}
+
+.icon-bg-atraso {
+  background-color: hsl(var(--status-atraso) / 0.15);
+  color: hsl(var(--status-atraso));
+}
+
+/* Text colors for status */
+.text-separacao {
+  color: hsl(var(--status-separacao));
+}
+
+.text-transito {
+  color: hsl(var(--status-transito));
+}
+
+.text-anvisa {
+  color: hsl(var(--status-anvisa));
+}
+
+.text-problema {
+  color: hsl(var(--status-problema));
+}
+
+.text-atraso {
+  color: hsl(var(--status-atraso));
+}
+
+/* Animation for sync indicator */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 1;
+  }
+}
+
+.sync-pulse {
+  animation: pulse-ring 2s ease-in-out infinite;
+}
