@@ -918,6 +918,7 @@ function App() {
   }
 
   const handleLogout = () => {
+    setShowLogoutConfirm(false)
     localStorage.removeItem(SESSION_KEY)
     setCurrentUser(null)
   }
