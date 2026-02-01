@@ -639,7 +639,13 @@ function App() {
   const [importData, setImportData] = useState<any[]>([])
   const [importErrors, setImportErrors] = useState<string[]>([])
   const [importing, setImporting] = useState(false)
-  
+
+  // Estados para importação de vendedores
+  const [showImportVendedoresModal, setShowImportVendedoresModal] = useState(false)
+  const [importVendedoresData, setImportVendedoresData] = useState<{ nome: string }[]>([])
+  const [importVendedoresErrors, setImportVendedoresErrors] = useState<string[]>([])
+  const [importingVendedores, setImportingVendedores] = useState(false)
+
   // Estados para Judicializações
   const [showAddJudic, setShowAddJudic] = useState(false)
   const [newJudic, setNewJudic] = useState({
@@ -971,6 +977,136 @@ function App() {
     await supabase.from('vendedores').delete().eq('id', id)
     await loadVendedores()
     toast.success('Vendedor excluído')
+  }
+
+  // Funções de importação de vendedores via CSV
+  const handleVendedoresFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const text = event.target?.result as string
+      const lines = text.split('\n').filter(line => line.trim())
+
+      if (lines.length < 2) {
+        setImportVendedoresErrors(['Arquivo vazio ou sem dados'])
+        setImportVendedoresData([])
+        return
+      }
+
+      // Detecta separador
+      const separator = lines[0].includes(';') ? ';' : ','
+      const headers = lines[0].split(separator).map(h => h.trim().toLowerCase().replace(/"/g, ''))
+
+      // Verifica se tem coluna 'nome'
+      const nomeIndex = headers.findIndex(h => h === 'nome')
+      if (nomeIndex === -1) {
+        setImportVendedoresErrors(['Coluna "nome" não encontrada no cabeçalho'])
+        setImportVendedoresData([])
+        return
+      }
+
+      const errors: string[] = []
+      const validRows: { nome: string }[] = []
+      const nomesVistos = new Set<string>()
+
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(separator).map(v => v.trim().replace(/"/g, ''))
+        const nome = values[nomeIndex]?.trim()
+        const lineNum = i + 1
+
+        if (!nome) {
+          errors.push(`Linha ${lineNum}: nome é obrigatório`)
+          continue
+        }
+
+        // Verifica duplicatas no próprio arquivo
+        const nomeUpper = nome.toUpperCase()
+        if (nomesVistos.has(nomeUpper)) {
+          errors.push(`Linha ${lineNum}: "${nome}" duplicado no arquivo`)
+          continue
+        }
+
+        nomesVistos.add(nomeUpper)
+        validRows.push({ nome })
+      }
+
+      setImportVendedoresData(validRows)
+      setImportVendedoresErrors(errors)
+    }
+
+    reader.readAsText(file, 'UTF-8')
+  }
+
+  const executeVendedoresImport = async () => {
+    if (importVendedoresData.length === 0) return
+
+    setImportingVendedores(true)
+    const supabase = getSupabase()
+
+    let successCount = 0
+    let errorCount = 0
+    const newErrors: string[] = []
+
+    for (const row of importVendedoresData) {
+      // Verifica se já existe vendedor com este nome
+      const { data: existing } = await supabase
+        .from('vendedores')
+        .select('id')
+        .ilike('nome', row.nome)
+        .maybeSingle()
+
+      if (existing) {
+        newErrors.push(`"${row.nome}" já existe - ignorado`)
+        errorCount++
+        continue
+      }
+
+      const { error } = await supabase.from('vendedores').insert({
+        nome: row.nome,
+        ativo: true
+      })
+
+      if (error) {
+        newErrors.push(`Erro ao importar "${row.nome}": ${error.message}`)
+        errorCount++
+      } else {
+        successCount++
+      }
+    }
+
+    setImportingVendedores(false)
+    setImportVendedoresErrors(newErrors)
+
+    if (successCount > 0) {
+      await loadVendedores()
+      toast.success(`${successCount} vendedor(es) importado(s) com sucesso!`)
+    }
+
+    if (errorCount > 0) {
+      toast.error(`${errorCount} vendedor(es) com erro`)
+    }
+
+    if (successCount > 0 && errorCount === 0) {
+      setShowImportVendedoresModal(false)
+      setImportVendedoresData([])
+      setImportVendedoresErrors([])
+    }
+  }
+
+  const downloadVendedoresTemplate = () => {
+    const headers = 'nome'
+    const examples = 'João Silva\nMaria Santos\nCarlos Oliveira'
+    const csv = headers + '\n' + examples
+
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'modelo_importacao_vendedores.csv'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   // Funções de importação
@@ -2371,28 +2507,176 @@ function App() {
             <h2 className="text-xl font-bold">Vendedores</h2>
             <p className="text-sm text-slate-500">Cadastre os vendedores para seleção nos pedidos</p>
           </div>
-          <Dialog open={showAddVendedor} onOpenChange={setShowAddVendedor}>
-            <DialogTrigger asChild>
-              <Button className="bg-orange-500 hover:bg-orange-600">
-                <UserPlus className="w-4 h-4 mr-2" />Novo Vendedor
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Novo Vendedor</DialogTitle></DialogHeader>
-              <div className="space-y-4 pt-4">
-                <Input 
-                  placeholder="Nome do vendedor" 
-                  value={newVendedor} 
-                  onChange={(e) => setNewVendedor(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addVendedor()}
-                />
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowAddVendedor(false)}>Cancelar</Button>
-                <Button onClick={addVendedor} className="bg-orange-500 hover:bg-orange-600">Cadastrar</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <div className="flex gap-2">
+            {/* Botão de Importar CSV */}
+            <Dialog open={showImportVendedoresModal} onOpenChange={(open) => {
+              setShowImportVendedoresModal(open)
+              if (!open) {
+                setImportVendedoresData([])
+                setImportVendedoresErrors([])
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="border-orange-500 text-orange-600 hover:bg-orange-50">
+                  <Upload className="w-4 h-4 mr-2" />Importar CSV
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Importar Vendedores via CSV</DialogTitle>
+                  <DialogDescription>
+                    Faça upload de um arquivo CSV com os vendedores para cadastro em massa.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4 pt-4">
+                  {/* Instruções */}
+                  <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg text-sm space-y-2">
+                    <p className="font-medium">Formato do arquivo:</p>
+                    <ul className="list-disc list-inside text-slate-600 dark:text-slate-400 space-y-1">
+                      <li>Separador: <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">;</code> (ponto e vírgula) ou <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">,</code> (vírgula)</li>
+                      <li>Coluna obrigatória: <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">nome</code></li>
+                      <li>Uma linha por vendedor</li>
+                      <li>Vendedores duplicados serão ignorados</li>
+                    </ul>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={downloadVendedoresTemplate}
+                      className="text-orange-600 p-0 h-auto"
+                    >
+                      <Download className="w-4 h-4 mr-1" />
+                      Baixar modelo de planilha
+                    </Button>
+                  </div>
+
+                  {/* Upload de arquivo */}
+                  <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-6 text-center">
+                    <FileSpreadsheet className="w-10 h-10 mx-auto text-slate-400 mb-2" />
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+                      Arraste um arquivo CSV ou clique para selecionar
+                    </p>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleVendedoresFileUpload}
+                      className="hidden"
+                      id="vendedores-csv-input"
+                    />
+                    <label htmlFor="vendedores-csv-input">
+                      <Button variant="outline" asChild className="cursor-pointer">
+                        <span>Selecionar arquivo</span>
+                      </Button>
+                    </label>
+                  </div>
+
+                  {/* Erros de validação */}
+                  {importVendedoresErrors.length > 0 && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                      <p className="font-medium text-red-700 dark:text-red-400 mb-2">
+                        Avisos/Erros ({importVendedoresErrors.length}):
+                      </p>
+                      <ul className="text-sm text-red-600 dark:text-red-400 space-y-1 max-h-32 overflow-y-auto">
+                        {importVendedoresErrors.map((err, i) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Preview dos dados */}
+                  {importVendedoresData.length > 0 && (
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 border-b">
+                        <p className="font-medium text-sm">
+                          Preview ({importVendedoresData.length} vendedor{importVendedoresData.length > 1 ? 'es' : ''} para importar)
+                        </p>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-12">#</TableHead>
+                              <TableHead>Nome</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {importVendedoresData.slice(0, 20).map((row, i) => (
+                              <TableRow key={i}>
+                                <TableCell className="text-slate-500">{i + 1}</TableCell>
+                                <TableCell>{row.nome}</TableCell>
+                              </TableRow>
+                            ))}
+                            {importVendedoresData.length > 20 && (
+                              <TableRow>
+                                <TableCell colSpan={2} className="text-center text-slate-500 text-sm">
+                                  ... e mais {importVendedoresData.length - 20} vendedor(es)
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowImportVendedoresModal(false)
+                      setImportVendedoresData([])
+                      setImportVendedoresErrors([])
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={executeVendedoresImport}
+                    disabled={importVendedoresData.length === 0 || importingVendedores}
+                    className="bg-orange-500 hover:bg-orange-600"
+                  >
+                    {importingVendedores ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importando...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Importar {importVendedoresData.length} vendedor{importVendedoresData.length > 1 ? 'es' : ''}
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Botão Novo Vendedor */}
+            <Dialog open={showAddVendedor} onOpenChange={setShowAddVendedor}>
+              <DialogTrigger asChild>
+                <Button className="bg-orange-500 hover:bg-orange-600">
+                  <UserPlus className="w-4 h-4 mr-2" />Novo Vendedor
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Novo Vendedor</DialogTitle></DialogHeader>
+                <div className="space-y-4 pt-4">
+                  <Input
+                    placeholder="Nome do vendedor"
+                    value={newVendedor}
+                    onChange={(e) => setNewVendedor(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addVendedor()}
+                  />
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowAddVendedor(false)}>Cancelar</Button>
+                  <Button onClick={addVendedor} className="bg-orange-500 hover:bg-orange-600">Cadastrar</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         <Card>
@@ -2430,17 +2714,17 @@ function App() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2 justify-end">
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => toggleVendedor(v.id, v.ativo)}
                             className={v.ativo ? 'text-amber-600 hover:bg-amber-50' : 'text-green-600 hover:bg-green-50'}
                           >
                             {v.ativo ? 'Desativar' : 'Ativar'}
                           </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => deleteVendedor(v.id)}
                             className="text-red-500 hover:bg-red-50"
                           >
@@ -2455,7 +2739,7 @@ function App() {
             </Table>
           </CardContent>
         </Card>
-        
+
         <p className="text-sm text-slate-500">
           {vendedores.filter(v => v.ativo).length} vendedor(es) ativo(s)
         </p>
