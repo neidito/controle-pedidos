@@ -1508,7 +1508,6 @@ function App() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900 dark:text-white">Controle de Pedidos</h1>
-              <p className="text-sm text-slate-500">{currentPeriodo?.nome || 'Carregando...'}</p>
             </div>
           </div>
 
