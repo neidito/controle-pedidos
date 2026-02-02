@@ -751,12 +751,12 @@ function App() {
         const { data: pedidosData } = await supabase.from('pedidos').select('*').eq('periodo_id', periodosData[0].id).order('criado_em', { ascending: false })
         if (pedidosData) setPedidos(pedidosData)
 
-        // Load judicializações
-        const { data: judicData } = await supabase.from('judicializacoes').select('*').eq('periodo_id', periodosData[0].id).order('criado_em', { ascending: false })
+        // Load judicializações (lista estática - todos os registros)
+        const { data: judicData } = await supabase.from('judicializacoes').select('*').order('criado_em', { ascending: false })
         if (judicData) setJudicializacoes(judicData)
 
-        // Load controle de envios
-        const { data: enviosData } = await supabase.from('controle_envios').select('*').eq('periodo_id', periodosData[0].id).order('criado_em', { ascending: false })
+        // Load controle de envios (lista estática - todos os registros)
+        const { data: enviosData } = await supabase.from('controle_envios').select('*').order('criado_em', { ascending: false })
         if (enviosData) setControleEnvios(enviosData)
       } else {
         // Create default period
@@ -799,15 +799,10 @@ function App() {
   const handlePeriodoChange = async (id: string) => {
     setPeriodoAtual(id)
     const supabase = getSupabase()
-    
+
+    // Apenas Pedidos responde ao filtro de período
     const { data: pedidosData } = await supabase.from('pedidos').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
     if (pedidosData) setPedidos(pedidosData)
-
-    const { data: judicData } = await supabase.from('judicializacoes').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
-    if (judicData) setJudicializacoes(judicData)
-
-    const { data: enviosData } = await supabase.from('controle_envios').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
-    if (enviosData) setControleEnvios(enviosData)
   }
 
   const addPeriodo = async () => {
