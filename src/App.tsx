@@ -639,6 +639,7 @@ function App() {
   const [importData, setImportData] = useState<any[]>([])
   const [importErrors, setImportErrors] = useState<string[]>([])
   const [importing, setImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Estados para importação de vendedores
   const [showImportVendedoresModal, setShowImportVendedoresModal] = useState(false)
@@ -1190,32 +1191,24 @@ function App() {
       
       rows.forEach((row, idx) => {
         const lineNum = idx + 2 // +2 porque linha 1 é cabeçalho
-        
-        // Validações
+
+        // Validações - apenas nr_pedido é obrigatório
         if (!row.nr_pedido) {
           errors.push(`Linha ${lineNum}: nr_pedido é obrigatório`)
           return
         }
-        if (!row.cliente) {
-          errors.push(`Linha ${lineNum}: cliente é obrigatório`)
-          return
-        }
-        if (!row.produto) {
-          errors.push(`Linha ${lineNum}: produto é obrigatório`)
-          return
-        }
-        
+
         // Verifica status válido
         const validStatus = ['Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso']
         const status = row.status && validStatus.includes(row.status) ? row.status : 'Em Separação'
-        
+
         validRows.push({
           nr_pedido: row.nr_pedido.toUpperCase(),
-          cliente: row.cliente,
+          cliente: row.cliente || '',
           medico: row.medico || '',
           vendedor: row.vendedor || '',
           data: parseDate(row.data),
-          produto: row.produto.replace(/\\n/g, '\n'), // Converte \n em quebra de linha
+          produto: row.produto ? row.produto.replace(/\\n/g, '\n') : '', // Converte \n em quebra de linha
           qtd: parseInt(row.qtd) || 1,
           total: parseNumber(row.total),
           rastreio: row.rastreio || '',
@@ -2219,6 +2212,9 @@ function App() {
           if (!open) {
             setImportData([])
             setImportErrors([])
+            if (fileInputRef.current) {
+              fileInputRef.current.value = ''
+            }
           }
         }}>
           <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
@@ -2253,6 +2249,7 @@ function App() {
               {/* Upload */}
               <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept=".csv,.txt"
                   onChange={handleFileUpload}
