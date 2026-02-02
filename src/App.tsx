@@ -669,6 +669,23 @@ function App() {
     qtd: 1, total: 0, rastreio: '', status: 'Em Separação' as const
   })
 
+  // Estados para edição de Controle de Envios
+  const [showEditEnvio, setShowEditEnvio] = useState(false)
+  const [editingEnvio, setEditingEnvio] = useState<ControleEnvio | null>(null)
+
+  // Estados para edição de Judicializações
+  const [showEditJudic, setShowEditJudic] = useState(false)
+  const [editingJudic, setEditingJudic] = useState<Judicializacao | null>(null)
+
+  // Estados para edição de Vendedores
+  const [showEditVendedor, setShowEditVendedor] = useState(false)
+  const [editingVendedor, setEditingVendedor] = useState<Vendedor | null>(null)
+
+  // Estados para edição de Usuários
+  const [showEditUser, setShowEditUser] = useState(false)
+  const [editingUser, setEditingUser] = useState<Usuario | null>(null)
+  const [editUserData, setEditUserData] = useState({ email: '', senha: '' })
+
   // ID do pedido que está sendo editado (reservado) pelo usuário atual
   const [editingPedidoId, setEditingPedidoId] = useState<string | null>(null)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
@@ -1337,6 +1354,123 @@ function App() {
     await supabase.from('controle_envios').delete().eq('id', id)
     setControleEnvios(controleEnvios.filter(e => e.id !== id))
     toast.success('Excluído')
+  }
+
+  // Função para editar Controle de Envio
+  const openEditEnvio = (envio: ControleEnvio) => {
+    setEditingEnvio({ ...envio })
+    setShowEditEnvio(true)
+  }
+
+  const saveEditEnvio = async () => {
+    if (!editingEnvio) return
+    if (!editingEnvio.nome || !editingEnvio.produto) {
+      toast.error('Preencha nome e produto')
+      return
+    }
+    const supabase = getSupabase()
+    const { error } = await supabase.from('controle_envios').update({
+      nome: editingEnvio.nome,
+      produto: editingEnvio.produto,
+      qtd: editingEnvio.qtd,
+      data: editingEnvio.data,
+      rastreio: editingEnvio.rastreio,
+      status: editingEnvio.status
+    }).eq('id', editingEnvio.id)
+
+    if (error) { toast.error('Erro ao atualizar'); return }
+    setControleEnvios(controleEnvios.map(e => e.id === editingEnvio.id ? editingEnvio : e))
+    setShowEditEnvio(false)
+    setEditingEnvio(null)
+    toast.success('Envio atualizado!')
+  }
+
+  // Função para editar Judicialização
+  const openEditJudic = (judic: Judicializacao) => {
+    setEditingJudic({ ...judic })
+    setShowEditJudic(true)
+  }
+
+  const saveEditJudic = async () => {
+    if (!editingJudic) return
+    if (!editingJudic.cliente || !editingJudic.produto) {
+      toast.error('Preencha cliente e produto')
+      return
+    }
+    const supabase = getSupabase()
+    const { error } = await supabase.from('judicializacoes').update({
+      nr_processo: editingJudic.nr_processo,
+      cliente: editingJudic.cliente,
+      advogado: editingJudic.advogado,
+      produto: editingJudic.produto,
+      qtd: editingJudic.qtd,
+      total: editingJudic.total,
+      data: editingJudic.data,
+      status: editingJudic.status,
+      observacoes: editingJudic.observacoes
+    }).eq('id', editingJudic.id)
+
+    if (error) { toast.error('Erro ao atualizar'); return }
+    setJudicializacoes(judicializacoes.map(j => j.id === editingJudic.id ? editingJudic : j))
+    setShowEditJudic(false)
+    setEditingJudic(null)
+    toast.success('Judicialização atualizada!')
+  }
+
+  // Função para editar Vendedor
+  const openEditVendedor = (vendedor: Vendedor) => {
+    setEditingVendedor({ ...vendedor })
+    setShowEditVendedor(true)
+  }
+
+  const saveEditVendedor = async () => {
+    if (!editingVendedor) return
+    if (!editingVendedor.nome.trim()) {
+      toast.error('Digite o nome do vendedor')
+      return
+    }
+    const supabase = getSupabase()
+    const { error } = await supabase.from('vendedores').update({
+      nome: editingVendedor.nome.trim()
+    }).eq('id', editingVendedor.id)
+
+    if (error) { toast.error('Erro ao atualizar'); return }
+    await loadVendedores()
+    setShowEditVendedor(false)
+    setEditingVendedor(null)
+    toast.success('Vendedor atualizado!')
+  }
+
+  // Função para editar Usuário
+  const openEditUser = (user: Usuario) => {
+    setEditingUser({ ...user })
+    setEditUserData({ email: user.email, senha: '' })
+    setShowEditUser(true)
+  }
+
+  const saveEditUser = async () => {
+    if (!editingUser) return
+    if (!editUserData.email.trim()) {
+      toast.error('Digite o email')
+      return
+    }
+    const supabase = getSupabase()
+    const updateData: { email: string; senha?: string } = {
+      email: editUserData.email.trim()
+    }
+    // Só atualiza senha se foi preenchida
+    if (editUserData.senha.trim()) {
+      updateData.senha = editUserData.senha.trim()
+    }
+    const { error } = await supabase.from('usuarios').update(updateData).eq('id', editingUser.id)
+
+    if (error) { toast.error('Erro ao atualizar'); return }
+    const { data } = await supabase.from('usuarios').select('*').order('nome')
+    if (data) setUsuarios(data)
+    setShowEditUser(false)
+    setEditingUser(null)
+    setEditUserData({ email: '', senha: '' })
+    toast.success('Usuário atualizado!')
   }
 
   // ==================== ÁREA DE TRABALHO ====================
@@ -2342,9 +2476,14 @@ function App() {
                         </Select>
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => deleteJudicializacao(j.id)} className="opacity-0 group-hover:opacity-100 text-red-500">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex gap-1 justify-end">
+                          <Button variant="ghost" size="sm" onClick={() => openEditJudic(j)} className="opacity-0 group-hover:opacity-100 text-blue-500 hover:bg-blue-50">
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => deleteJudicializacao(j.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:bg-red-50">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -2353,6 +2492,44 @@ function App() {
             </Table>
           </CardContent>
         </Card>
+
+        {/* Modal de Edição de Judicialização */}
+        <Dialog open={showEditJudic} onOpenChange={setShowEditJudic}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader><DialogTitle>Editar Judicialização</DialogTitle></DialogHeader>
+            {editingJudic && (
+              <div className="space-y-4 pt-4">
+                <Input placeholder="Nº Processo" value={editingJudic.nr_processo} onChange={(e) => setEditingJudic({...editingJudic, nr_processo: e.target.value})} />
+                <Input placeholder="Cliente *" value={editingJudic.cliente} onChange={(e) => setEditingJudic({...editingJudic, cliente: e.target.value})} />
+                <Input placeholder="Advogado" value={editingJudic.advogado} onChange={(e) => setEditingJudic({...editingJudic, advogado: e.target.value})} />
+                <Input placeholder="Produto *" value={editingJudic.produto} onChange={(e) => setEditingJudic({...editingJudic, produto: e.target.value})} />
+                <div className="grid grid-cols-3 gap-4">
+                  <Input type="number" placeholder="QTD" value={editingJudic.qtd} onChange={(e) => setEditingJudic({...editingJudic, qtd: parseInt(e.target.value) || 1})} />
+                  <Input placeholder="Total" value={formatCurrency(editingJudic.total)} onChange={(e) => setEditingJudic({...editingJudic, total: parseCurrency(e.target.value)})} />
+                  <Input type="date" value={editingJudic.data} onChange={(e) => setEditingJudic({...editingJudic, data: e.target.value})} />
+                </div>
+                <Select value={editingJudic.status} onValueChange={(v) => setEditingJudic({...editingJudic, status: v as any})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Orçado">Orçado</SelectItem>
+                    <SelectItem value="Embarcado">Embarcado</SelectItem>
+                    <SelectItem value="Entregue">Entregue</SelectItem>
+                  </SelectContent>
+                </Select>
+                <textarea
+                  placeholder="Observações"
+                  value={editingJudic.observacoes || ''}
+                  onChange={(e) => setEditingJudic({...editingJudic, observacoes: e.target.value})}
+                  className="w-full min-h-[80px] rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                />
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowEditJudic(false)}>Cancelar</Button>
+              <Button onClick={saveEditJudic} className="bg-purple-500 hover:bg-purple-600">Salvar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -2484,9 +2661,14 @@ function App() {
                         </Select>
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => deleteControleEnvio(e.id)} className="opacity-0 group-hover:opacity-100 text-red-500">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex gap-1 justify-end">
+                          <Button variant="ghost" size="sm" onClick={() => openEditEnvio(e)} className="opacity-0 group-hover:opacity-100 text-blue-500 hover:bg-blue-50">
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => deleteControleEnvio(e.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:bg-red-50">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -2495,6 +2677,38 @@ function App() {
             </Table>
           </CardContent>
         </Card>
+
+        {/* Modal de Edição de Envio */}
+        <Dialog open={showEditEnvio} onOpenChange={setShowEditEnvio}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Editar Envio</DialogTitle></DialogHeader>
+            {editingEnvio && (
+              <div className="space-y-4 pt-4">
+                <Input placeholder="Nome *" value={editingEnvio.nome} onChange={(e) => setEditingEnvio({...editingEnvio, nome: e.target.value})} />
+                <Input placeholder="Produto *" value={editingEnvio.produto} onChange={(e) => setEditingEnvio({...editingEnvio, produto: e.target.value})} />
+                <div className="grid grid-cols-2 gap-4">
+                  <Input type="number" placeholder="Quantidade" value={editingEnvio.qtd} onChange={(e) => setEditingEnvio({...editingEnvio, qtd: parseInt(e.target.value) || 1})} />
+                  <Input type="date" value={editingEnvio.data} onChange={(e) => setEditingEnvio({...editingEnvio, data: e.target.value})} />
+                </div>
+                <Input placeholder="Rastreio" value={editingEnvio.rastreio} onChange={(e) => setEditingEnvio({...editingEnvio, rastreio: e.target.value})} />
+                <Select value={editingEnvio.status} onValueChange={(v) => setEditingEnvio({...editingEnvio, status: v as any})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Pendente">Pendente</SelectItem>
+                    <SelectItem value="Enviado">Enviado</SelectItem>
+                    <SelectItem value="Em Trânsito">Em Trânsito</SelectItem>
+                    <SelectItem value="Anvisa">Anvisa</SelectItem>
+                    <SelectItem value="Problema">Problema</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowEditEnvio(false)}>Cancelar</Button>
+              <Button onClick={saveEditEnvio} className="bg-teal-500 hover:bg-teal-600">Salvar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -2717,6 +2931,14 @@ function App() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            onClick={() => openEditVendedor(v)}
+                            className="text-blue-500 hover:bg-blue-50"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => toggleVendedor(v.id, v.ativo)}
                             className={v.ativo ? 'text-amber-600 hover:bg-amber-50' : 'text-green-600 hover:bg-green-50'}
                           >
@@ -2743,6 +2965,27 @@ function App() {
         <p className="text-sm text-slate-500">
           {vendedores.filter(v => v.ativo).length} vendedor(es) ativo(s)
         </p>
+
+        {/* Modal de Edição de Vendedor */}
+        <Dialog open={showEditVendedor} onOpenChange={setShowEditVendedor}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Editar Vendedor</DialogTitle></DialogHeader>
+            {editingVendedor && (
+              <div className="space-y-4 pt-4">
+                <Input
+                  placeholder="Nome do vendedor"
+                  value={editingVendedor.nome}
+                  onChange={(e) => setEditingVendedor({...editingVendedor, nome: e.target.value})}
+                  onKeyDown={(e) => e.key === 'Enter' && saveEditVendedor()}
+                />
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowEditVendedor(false)}>Cancelar</Button>
+              <Button onClick={saveEditVendedor} className="bg-orange-500 hover:bg-orange-600">Salvar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -2778,13 +3021,58 @@ function App() {
                     <TableCell className="text-slate-500">{u.email}</TableCell>
                     <TableCell><span className={`px-2 py-1 rounded-full text-xs ${u.tipo === 'admin' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>{u.tipo === 'admin' ? 'Admin' : 'Colaborador'}</span></TableCell>
                     <TableCell><span className={`px-2 py-1 rounded-full text-xs flex items-center gap-1 w-fit ${u.ativo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{u.ativo ? <><CheckCircle2 className="w-3 h-3" />Ativo</> : <><XCircle className="w-3 h-3" />Inativo</>}</span></TableCell>
-                    <TableCell>{u.id !== currentUser?.id && <Button variant="ghost" size="sm" onClick={() => toggleUser(u.id, u.ativo)} className={u.ativo ? 'text-amber-600' : 'text-green-600'}>{u.ativo ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}</Button>}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-1 justify-end">
+                        <Button variant="ghost" size="sm" onClick={() => openEditUser(u)} className="text-blue-500 hover:bg-blue-50">
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        {u.id !== currentUser?.id && <Button variant="ghost" size="sm" onClick={() => toggleUser(u.id, u.ativo)} className={u.ativo ? 'text-amber-600' : 'text-green-600'}>{u.ativo ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}</Button>}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
+
+        {/* Modal de Edição de Usuário */}
+        <Dialog open={showEditUser} onOpenChange={setShowEditUser}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Editar Usuário</DialogTitle></DialogHeader>
+            {editingUser && (
+              <div className="space-y-4 pt-4">
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1 block">Nome</label>
+                  <p className="text-sm text-slate-500 bg-slate-50 px-3 py-2 rounded-md">{editingUser.nome}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1 block">Email</label>
+                  <Input
+                    type="email"
+                    placeholder="Email"
+                    value={editUserData.email}
+                    onChange={(e) => setEditUserData({...editUserData, email: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1 block">Nova Senha</label>
+                  <Input
+                    type="password"
+                    placeholder="Deixe em branco para manter a senha atual"
+                    value={editUserData.senha}
+                    onChange={(e) => setEditUserData({...editUserData, senha: e.target.value})}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Deixe em branco para não alterar a senha</p>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowEditUser(false)}>Cancelar</Button>
+              <Button onClick={saveEditUser} className="bg-orange-500 hover:bg-orange-600">Salvar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
