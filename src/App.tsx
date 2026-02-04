@@ -83,6 +83,7 @@ interface Pedido {
   total: number
   rastreio: string
   status: 'Em Separação' | 'Em Trânsito' | 'Anvisa' | 'Problema Anvisa' | 'Atraso' | 'Doc. Recusado' | 'THC / 2000'
+  thc_status?: 'Pendente de Envio' | 'Enviado'
 }
 
 interface Periodo {
@@ -523,6 +524,11 @@ const statusEnvioConfig: Record<string, { color: string; bgColor: string }> = {
   'Problema': { color: 'text-red-700', bgColor: 'bg-red-100' }
 }
 
+const statusThcConfig: Record<string, { color: string; bgColor: string }> = {
+  'Pendente de Envio': { color: 'text-amber-700', bgColor: 'bg-amber-100' },
+  'Enviado': { color: 'text-green-700', bgColor: 'bg-green-100' }
+}
+
 // ==================== LOGIN SCREEN ====================
 function LoginScreen({ onLogin }: { onLogin: (u: Usuario) => void }) {
   const [email, setEmail] = useState('')
@@ -676,6 +682,11 @@ function App() {
   const [showEditEnvio, setShowEditEnvio] = useState(false)
   const [editingEnvio, setEditingEnvio] = useState<ControleEnvio | null>(null)
 
+  // Estados para THC-2000
+  const [thcPedidos, setThcPedidos] = useState<Pedido[]>([])
+  const [thcSearchTerm, setThcSearchTerm] = useState('')
+  const [thcFilterStatus, setThcFilterStatus] = useState('Todos')
+
   // Estados para edição de Judicializações
   const [showEditJudic, setShowEditJudic] = useState(false)
   const [editingJudic, setEditingJudic] = useState<Judicializacao | null>(null)
@@ -758,6 +769,10 @@ function App() {
 
         const { data: enviosData } = await supabase.from('controle_envios').select('*').eq('periodo_id', periodosData[0].id).order('criado_em', { ascending: false })
         if (enviosData) setControleEnvios(enviosData)
+
+        // Load THC / 2000 pedidos (all periods)
+        const { data: thcData } = await supabase.from('pedidos').select('*').eq('status', 'THC / 2000').order('criado_em', { ascending: false })
+        if (thcData) setThcPedidos(thcData)
       } else {
         // Create default period
         const current = getCurrentPeriodo()
@@ -789,11 +804,40 @@ function App() {
     return () => { supabase.removeChannel(channel) }
   }, [currentUser, periodoAtual, pedidosPeriodoSelecionado])
 
+  // Realtime subscription for THC-2000 tab
+  useEffect(() => {
+    if (!currentUser) return
+
+    const supabase = getSupabase()
+    const thcChannel = supabase
+      .channel('thc-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, () => {
+        loadThcPedidos()
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(thcChannel) }
+  }, [currentUser])
+
   const loadPedidos = async () => {
     if (!periodoAtual) return
     const supabase = getSupabase()
     const { data } = await supabase.from('pedidos').select('*').eq('periodo_id', periodoAtual).order('criado_em', { ascending: false })
     if (data) setPedidos(data)
+  }
+
+  const loadThcPedidos = async () => {
+    const supabase = getSupabase()
+    const { data } = await supabase.from('pedidos').select('*').eq('status', 'THC / 2000').order('criado_em', { ascending: false })
+    if (data) setThcPedidos(data)
+  }
+
+  const updateThcPedido = async (id: string, field: string, value: any) => {
+    const supabase = getSupabase()
+    await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
+    setThcPedidos(thcPedidos.map(p => p.id === id ? { ...p, [field]: value } : p))
+    // Also update in main pedidos list if loaded
+    setPedidos(pedidos.map(p => p.id === id ? { ...p, [field]: value } : p))
   }
 
   const handlePeriodoChange = async (id: string) => {
@@ -1732,6 +1776,7 @@ function App() {
               <TabsTrigger value="pedidos"><Package className="w-4 h-4 mr-2" />Pedidos</TabsTrigger>
               <TabsTrigger value="judicializacoes"><Scale className="w-4 h-4 mr-2" />Judicializações</TabsTrigger>
               <TabsTrigger value="envios"><Send className="w-4 h-4 mr-2" />Controle de Envios</TabsTrigger>
+              <TabsTrigger value="thc2000"><Receipt className="w-4 h-4 mr-2" />THC-2000</TabsTrigger>
               <TabsTrigger value="vendedores"><UserCog className="w-4 h-4 mr-2" />Vendedores</TabsTrigger>
               <TabsTrigger value="usuarios"><Shield className="w-4 h-4 mr-2" />Usuários</TabsTrigger>
             </TabsList>
@@ -1739,6 +1784,7 @@ function App() {
             <TabsContent value="pedidos">{renderPedidos()}</TabsContent>
             <TabsContent value="judicializacoes">{renderJudicializacoes()}</TabsContent>
             <TabsContent value="envios">{renderControleEnvios()}</TabsContent>
+            <TabsContent value="thc2000">{renderThc2000()}</TabsContent>
             <TabsContent value="vendedores">{renderVendedores()}</TabsContent>
             <TabsContent value="usuarios">{renderUsuarios()}</TabsContent>
           </Tabs>
@@ -1747,9 +1793,11 @@ function App() {
             <TabsList>
               <TabsTrigger value="workspace"><LayoutDashboard className="w-4 h-4 mr-2" />Área de Trabalho</TabsTrigger>
               <TabsTrigger value="pedidos"><Package className="w-4 h-4 mr-2" />Pedidos</TabsTrigger>
+              <TabsTrigger value="thc2000"><Receipt className="w-4 h-4 mr-2" />THC-2000</TabsTrigger>
             </TabsList>
             <TabsContent value="workspace">{renderAreaTrabalho()}</TabsContent>
             <TabsContent value="pedidos">{renderPedidos()}</TabsContent>
+            <TabsContent value="thc2000">{renderThc2000()}</TabsContent>
           </Tabs>
         )}
       </main>
@@ -2820,6 +2868,153 @@ function App() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      </div>
+    )
+  }
+
+  function renderThc2000() {
+    const filteredThcPedidos = thcPedidos.filter(p => {
+      const matchSearch = !thcSearchTerm || p.cliente.toLowerCase().includes(thcSearchTerm.toLowerCase()) || p.nr_pedido.toLowerCase().includes(thcSearchTerm.toLowerCase()) || p.produto.toLowerCase().includes(thcSearchTerm.toLowerCase()) || p.vendedor.toLowerCase().includes(thcSearchTerm.toLowerCase())
+      const matchStatus = thcFilterStatus === 'Todos' || (p.thc_status || 'Pendente de Envio') === thcFilterStatus
+      return matchSearch && matchStatus
+    })
+
+    const thcStats = {
+      total: thcPedidos.length,
+      pendente: thcPedidos.filter(p => !p.thc_status || p.thc_status === 'Pendente de Envio').length,
+      enviado: thcPedidos.filter(p => p.thc_status === 'Enviado').length
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <Receipt className="w-6 h-6 text-teal-600" />
+              THC-2000
+            </h2>
+            <p className="text-sm text-slate-500">Pedidos com status THC / 2000</p>
+          </div>
+          <Button variant="outline" onClick={loadThcPedidos} className="gap-2">
+            <RefreshCw className="w-4 h-4" />Atualizar
+          </Button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-4">
+          <Card className="bg-slate-50 border-0">
+            <CardContent className="p-4">
+              <p className="text-slate-600 text-sm font-medium">Total</p>
+              <p className="text-2xl font-bold">{thcStats.total}</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-amber-50 border-0">
+            <CardContent className="p-4">
+              <p className="text-amber-700 text-sm font-medium">Pendente de Envio</p>
+              <p className="text-2xl font-bold">{thcStats.pendente}</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-green-50 border-0">
+            <CardContent className="p-4">
+              <p className="text-green-700 text-sm font-medium">Enviado</p>
+              <p className="text-2xl font-bold">{thcStats.enviado}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Search and Filter */}
+        <div className="flex gap-4 items-center">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder="Buscar por pedido, cliente, produto ou vendedor..."
+              value={thcSearchTerm}
+              onChange={(e) => setThcSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <div className="flex gap-2">
+            {['Todos', 'Pendente de Envio', 'Enviado'].map(status => (
+              <Button
+                key={status}
+                variant={thcFilterStatus === status ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setThcFilterStatus(status)}
+                className={thcFilterStatus === status ? 'bg-teal-600 hover:bg-teal-700' : ''}
+              >
+                {status}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Table */}
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50">
+                  <TableHead>N° Pedido</TableHead>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Vendedor</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Produto</TableHead>
+                  <TableHead>QTD</TableHead>
+                  <TableHead>Rastreio</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredThcPedidos.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-slate-500">
+                      <Receipt className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                      Nenhum pedido THC / 2000 encontrado
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredThcPedidos.map(p => (
+                    <TableRow key={p.id} className="group">
+                      <TableCell className="font-mono text-sm font-medium">{p.nr_pedido}</TableCell>
+                      <TableCell>{p.cliente}</TableCell>
+                      <TableCell>{p.vendedor}</TableCell>
+                      <TableCell>{new Date(p.data + 'T00:00:00').toLocaleDateString('pt-BR')}</TableCell>
+                      <TableCell>{p.produto}</TableCell>
+                      <TableCell>{p.qtd}</TableCell>
+                      <TableCell>
+                        <Input
+                          className="h-8 w-[160px] text-xs font-mono"
+                          placeholder="Código de rastreio"
+                          value={p.rastreio || ''}
+                          onChange={(e) => {
+                            setThcPedidos(thcPedidos.map(tp => tp.id === p.id ? { ...tp, rastreio: e.target.value } : tp))
+                          }}
+                          onBlur={(e) => {
+                            updateThcPedido(p.id, 'rastreio', e.target.value)
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={p.thc_status || 'Pendente de Envio'}
+                          onValueChange={(v) => updateThcPedido(p.id, 'thc_status', v)}
+                        >
+                          <SelectTrigger className={`h-8 w-[160px] ${statusThcConfig[p.thc_status || 'Pendente de Envio'].bgColor} ${statusThcConfig[p.thc_status || 'Pendente de Envio'].color} border-0`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pendente de Envio">Pendente de Envio</SelectItem>
+                            <SelectItem value="Enviado">Enviado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       </div>
     )
   }
