@@ -2006,6 +2006,31 @@ function App() {
               <Table>
                 <TableHeader><TableRow className="bg-slate-50 dark:bg-slate-800"><TableHead>Nº</TableHead><TableHead>Cliente</TableHead><TableHead>Médico</TableHead><TableHead>Vendedor</TableHead><TableHead>Data</TableHead><TableHead>Produto</TableHead><TableHead>QTD</TableHead><TableHead>Total</TableHead><TableHead>Rastreio</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
                 <TableBody>
+                  {/* Linha para reservar novo pedido - só aparece se não está editando outro */}
+                  {!editingPedidoId && (
+                    <TableRow className="bg-green-50 dark:bg-green-900/20 border-b-2 border-green-200">
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Input
+                            value={newRow.nr_pedido}
+                            onChange={(e) => setNewRow({...newRow, nr_pedido: e.target.value.toUpperCase()})}
+                            onKeyDown={(e) => e.key === 'Enter' && reservePedido()}
+                            className="h-8 w-24 font-mono border-green-300 bg-white"
+                            placeholder="Nº *"
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell colSpan={9} className="text-slate-500 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span>← Digite o nº do pedido e clique em</span>
+                          <Button size="sm" onClick={reservePedido} disabled={reservingPedido || !newRow.nr_pedido.trim()} className="bg-green-500 hover:bg-green-600 h-7 px-3">
+                            {reservingPedido ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Reservar</>}
+                          </Button>
+                          <span>para iniciar</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {filteredPedidos.map(p => {
                     // Verifica se este pedido está sendo editado pelo usuário atual
                     const isBeingEditedByMe = editingPedidoId === p.id
@@ -2168,32 +2193,6 @@ function App() {
                       </TableRow>
                     )
                   })}
-                  
-                  {/* Linha para reservar novo pedido - só aparece se não está editando outro */}
-                  {!editingPedidoId && (
-                    <TableRow className="bg-green-50 dark:bg-green-900/20 border-t-2 border-green-200">
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Input 
-                            value={newRow.nr_pedido} 
-                            onChange={(e) => setNewRow({...newRow, nr_pedido: e.target.value.toUpperCase()})} 
-                            onKeyDown={(e) => e.key === 'Enter' && reservePedido()}
-                            className="h-8 w-24 font-mono border-green-300 bg-white" 
-                            placeholder="Nº *" 
-                          />
-                        </div>
-                      </TableCell>
-                      <TableCell colSpan={9} className="text-slate-500 text-sm">
-                        <div className="flex items-center gap-2">
-                          <span>← Digite o nº do pedido e clique em</span>
-                          <Button size="sm" onClick={reservePedido} disabled={reservingPedido || !newRow.nr_pedido.trim()} className="bg-green-500 hover:bg-green-600 h-7 px-3">
-                            {reservingPedido ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Reservar</>}
-                          </Button>
-                          <span>para iniciar</span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
             </div>
