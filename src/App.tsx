@@ -2007,10 +2007,13 @@ function App() {
     doc.setFillColor(...lightGray)
     doc.roundedRect(margin, yPos, contentWidth, 45, 3, 3, 'F')
 
-    // Logo
+    // Logo (682x215 aspect ratio = ~3.17:1)
     if (logoBase64) {
       try {
-        doc.addImage(logoBase64, 'PNG', margin + 5, yPos + 5, 35, 35)
+        const logoWidth = 50
+        const logoHeight = logoWidth * (215 / 682) // maintain aspect ratio
+        const logoY = yPos + (45 - logoHeight) / 2 // vertically center in header
+        doc.addImage(logoBase64, 'PNG', margin + 5, logoY, logoWidth, logoHeight)
       } catch { /* ignore logo errors */ }
     }
 
