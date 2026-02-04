@@ -178,6 +178,19 @@ const parseCurrency = (value: string): number => {
   return isNaN(num) ? 0 : num
 }
 
+const SAO_PAULO_TZ = 'America/Sao_Paulo'
+
+// Retorna a data de hoje no fuso horário de São Paulo (YYYY-MM-DD)
+const getTodayInSaoPaulo = (): string => {
+  return new Date().toLocaleDateString('en-CA', { timeZone: SAO_PAULO_TZ })
+}
+
+// Formata uma data (YYYY-MM-DD) para exibição em pt-BR com fuso de São Paulo
+const formatDateBR = (dateStr: string): string => {
+  const date = new Date(dateStr + 'T12:00:00')
+  return date.toLocaleDateString('pt-BR', { timeZone: SAO_PAULO_TZ })
+}
+
 // Componente de Input que só salva no blur (ao sair do campo)
 function EditableInput({ 
   value, 
@@ -495,9 +508,10 @@ function BlurInput({
 }
 
 const getCurrentPeriodo = () => {
-  const now = new Date()
+  const today = getTodayInSaoPaulo()
+  const [year, month] = today.split('-').map(Number)
   const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
-  return { nome: `${meses[now.getMonth()]} ${now.getFullYear()}`, mes: now.getMonth() + 1, ano: now.getFullYear() }
+  return { nome: `${meses[month - 1]} ${year}`, mes: month, ano: year }
 }
 
 const statusConfig: Record<string, { color: string; icon: any; cardClass: string; iconBgClass: string; textClass: string }> = {
@@ -659,7 +673,7 @@ function App() {
   const [showAddJudic, setShowAddJudic] = useState(false)
   const [newJudic, setNewJudic] = useState({
     nr_processo: '', cliente: '', advogado: '', produto: '',
-    qtd: 1, total: 0, data: new Date().toISOString().split('T')[0],
+    qtd: 1, total: 0, data: getTodayInSaoPaulo(),
     status: 'Orçado' as const, observacoes: ''
   })
   
@@ -667,14 +681,14 @@ function App() {
   const [showAddEnvio, setShowAddEnvio] = useState(false)
   const [newEnvio, setNewEnvio] = useState({
     nome: '', produto: '', qtd: 1,
-    data: new Date().toISOString().split('T')[0],
+    data: getTodayInSaoPaulo(),
     rastreio: '', status: 'Pendente' as const
   })
   
   const [reservingPedido, setReservingPedido] = useState(false)
   const [newRow, setNewRow] = useState({
     nr_pedido: '', cliente: '', medico: '', vendedor: '',
-    data: new Date().toISOString().split('T')[0], produto: '',
+    data: getTodayInSaoPaulo(), produto: '',
     qtd: 1, total: 0, rastreio: '', status: 'Em Separação' as const
   })
 
@@ -874,7 +888,8 @@ function App() {
   const addPeriodo = async () => {
     if (!novoPeriodoNome.trim()) return
     const supabase = getSupabase()
-    const { data, error } = await supabase.from('periodos').insert({ nome: novoPeriodoNome, mes: new Date().getMonth() + 1, ano: new Date().getFullYear() }).select().single()
+    const currentPeriodo = getCurrentPeriodo()
+    const { data, error } = await supabase.from('periodos').insert({ nome: novoPeriodoNome, mes: currentPeriodo.mes, ano: currentPeriodo.ano }).select().single()
     if (error) { toast.error('Erro ao criar período'); return }
     if (data) {
       setPeriodos([data, ...periodos])
@@ -918,7 +933,7 @@ function App() {
         periodo_id: periodoAtual,
         nr_pedido: nrPedido,
         cliente: '', medico: '', vendedor: '',
-        data: new Date().toISOString().split('T')[0],
+        data: getTodayInSaoPaulo(),
         produto: '', qtd: 1, total: 0,
         rastreio: '', status: 'Em Separação',
         criado_por: currentUser?.id
@@ -1212,7 +1227,7 @@ function App() {
   }
 
   const parseDate = (dateStr: string): string => {
-    if (!dateStr) return new Date().toISOString().split('T')[0]
+    if (!dateStr) return getTodayInSaoPaulo()
     
     // Tenta DD/MM/YYYY
     if (dateStr.includes('/')) {
@@ -1228,7 +1243,7 @@ function App() {
       return dateStr
     }
     
-    return new Date().toISOString().split('T')[0]
+    return getTodayInSaoPaulo()
   }
 
   const parseNumber = (value: string): number => {
@@ -2245,7 +2260,7 @@ function App() {
                               onSave={(v) => updatePedido(p.id, 'data', v)} 
                               className={`h-8 ${isBeingEditedByMe ? 'border-orange-300 bg-white' : 'border-transparent hover:border-slate-300'}`} 
                             />
-                          ) : new Date(p.data).toLocaleDateString('pt-BR')}
+                          ) : formatDateBR(p.data)}
                         </TableCell>
                         <TableCell className="align-top">
                           {canEditAllFields ? (
@@ -2507,7 +2522,7 @@ function App() {
       await addJudicializacao(newJudic)
       setNewJudic({
         nr_processo: '', cliente: '', advogado: '', produto: '',
-        qtd: 1, total: 0, data: new Date().toISOString().split('T')[0],
+        qtd: 1, total: 0, data: getTodayInSaoPaulo(),
         status: 'Orçado', observacoes: ''
       })
       setShowAddJudic(false)
@@ -2621,7 +2636,7 @@ function App() {
                       <TableCell>{j.produto}</TableCell>
                       <TableCell>{j.qtd}</TableCell>
                       <TableCell>R$ {formatCurrency(j.total)}</TableCell>
-                      <TableCell>{new Date(j.data).toLocaleDateString('pt-BR')}</TableCell>
+                      <TableCell>{formatDateBR(j.data)}</TableCell>
                       <TableCell>
                         <Select value={j.status} onValueChange={(v) => updateJudicializacao(j.id, 'status', v)}>
                           <SelectTrigger className={`h-8 w-[120px] ${statusJudicConfig[j.status].bgColor} ${statusJudicConfig[j.status].color} border-0`}>
@@ -2702,7 +2717,7 @@ function App() {
       await addControleEnvio(newEnvio)
       setNewEnvio({
         nome: '', produto: '', qtd: 1,
-        data: new Date().toISOString().split('T')[0],
+        data: getTodayInSaoPaulo(),
         rastreio: '', status: 'Pendente'
       })
       setShowAddEnvio(false)
@@ -2794,7 +2809,7 @@ function App() {
                       <TableCell className="font-medium">{e.nome}</TableCell>
                       <TableCell>{e.produto}</TableCell>
                       <TableCell>{e.qtd}</TableCell>
-                      <TableCell>{new Date(e.data).toLocaleDateString('pt-BR')}</TableCell>
+                      <TableCell>{formatDateBR(e.data)}</TableCell>
                       <TableCell>
                         {e.rastreio ? (
                           <button 
@@ -2960,6 +2975,7 @@ function App() {
                   <TableHead>Data</TableHead>
                   <TableHead>Produto</TableHead>
                   <TableHead>QTD</TableHead>
+                  <TableHead>Enviar em</TableHead>
                   <TableHead>Rastreio</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
@@ -2967,7 +2983,7 @@ function App() {
               <TableBody>
                 {filteredThcPedidos.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-slate-500">
+                    <TableCell colSpan={9} className="text-center py-8 text-slate-500">
                       <Receipt className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                       Nenhum pedido THC / 2000 encontrado
                     </TableCell>
@@ -2978,9 +2994,14 @@ function App() {
                       <TableCell className="font-mono text-sm font-medium">{p.nr_pedido}</TableCell>
                       <TableCell>{p.cliente}</TableCell>
                       <TableCell>{p.vendedor}</TableCell>
-                      <TableCell>{new Date(p.data + 'T00:00:00').toLocaleDateString('pt-BR')}</TableCell>
+                      <TableCell>{formatDateBR(p.data)}</TableCell>
                       <TableCell>{p.produto}</TableCell>
                       <TableCell>{p.qtd}</TableCell>
+                      <TableCell>{(() => {
+                        const date = new Date(p.data + 'T12:00:00')
+                        date.setDate(date.getDate() + 16)
+                        return date.toLocaleDateString('pt-BR', { timeZone: SAO_PAULO_TZ })
+                      })()}</TableCell>
                       <TableCell>
                         <Input
                           className="h-8 w-[160px] text-xs font-mono"
