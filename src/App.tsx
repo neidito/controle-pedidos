@@ -14,7 +14,7 @@ import {
   RefreshCw, Loader2, PackageOpen, LogOut, UserPlus, Shield, User,
   Eye, EyeOff, Lock, UserCog, CheckCircle2, XCircle, Sun, Moon, Database,
   Pencil, Copy, Upload, FileSpreadsheet, Download, Scale, Send,
-  StickyNote, ListTodo, Flag, X, Check, LayoutDashboard, Palette
+  StickyNote, ListTodo, Flag, X, Check, LayoutDashboard, Palette, ArrowLeft
 } from 'lucide-react'
 import { getSupabase } from '@/lib/supabase'
 
@@ -631,8 +631,9 @@ function App() {
   const [syncing, setSyncing] = useState(false)
   const [showNovoPeriodo, setShowNovoPeriodo] = useState(false)
   const [novoPeriodoNome, setNovoPeriodoNome] = useState('')
-  const [activeTab, setActiveTab] = useState('pedidos')
+  const [activeTab, setActiveTab] = useState('workspace')
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark')
+  const [pedidosPeriodoSelecionado, setPedidosPeriodoSelecionado] = useState(false)
   const [showAddUser, setShowAddUser] = useState(false)
   const [newUser, setNewUser] = useState({ nome: '', email: '', senha: '', tipo: 'colaborador' as const })
   const [showAddVendedor, setShowAddVendedor] = useState(false)
@@ -749,15 +750,12 @@ function App() {
       if (periodosData && periodosData.length > 0) {
         setPeriodos(periodosData)
         setPeriodoAtual(periodosData[0].id)
-        
-        const { data: pedidosData } = await supabase.from('pedidos').select('*').eq('periodo_id', periodosData[0].id).order('criado_em', { ascending: false })
-        if (pedidosData) setPedidos(pedidosData)
 
-        // Load judicializações
+        // Don't auto-load pedidos - user will select a period from cards in the Pedidos tab
+        // Only load judicializações and envios for the default period
         const { data: judicData } = await supabase.from('judicializacoes').select('*').eq('periodo_id', periodosData[0].id).order('criado_em', { ascending: false })
         if (judicData) setJudicializacoes(judicData)
 
-        // Load controle de envios
         const { data: enviosData } = await supabase.from('controle_envios').select('*').eq('periodo_id', periodosData[0].id).order('criado_em', { ascending: false })
         if (enviosData) setControleEnvios(enviosData)
       } else {
@@ -774,9 +772,9 @@ function App() {
     loadData()
   }, [currentUser])
 
-  // Realtime subscription
+  // Realtime subscription - only when pedidos period is actively selected
   useEffect(() => {
-    if (!currentUser || !periodoAtual) return
+    if (!currentUser || !periodoAtual || !pedidosPeriodoSelecionado) return
 
     const supabase = getSupabase()
     const channel = supabase
@@ -789,7 +787,7 @@ function App() {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [currentUser, periodoAtual])
+  }, [currentUser, periodoAtual, pedidosPeriodoSelecionado])
 
   const loadPedidos = async () => {
     if (!periodoAtual) return
@@ -800,16 +798,33 @@ function App() {
 
   const handlePeriodoChange = async (id: string) => {
     setPeriodoAtual(id)
+    // Reset pedidos period selection - user will need to re-select via cards
+    setPedidosPeriodoSelecionado(false)
+    setPedidos([])
     const supabase = getSupabase()
-    
-    const { data: pedidosData } = await supabase.from('pedidos').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
-    if (pedidosData) setPedidos(pedidosData)
 
     const { data: judicData } = await supabase.from('judicializacoes').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
     if (judicData) setJudicializacoes(judicData)
 
     const { data: enviosData } = await supabase.from('controle_envios').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
     if (enviosData) setControleEnvios(enviosData)
+  }
+
+  const handlePedidosPeriodoSelect = async (id: string) => {
+    setPeriodoAtual(id)
+    const supabase = getSupabase()
+
+    const { data: pedidosData } = await supabase.from('pedidos').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
+    if (pedidosData) setPedidos(pedidosData)
+
+    // Also load judic and envios for the selected period to keep other tabs in sync
+    const { data: judicData } = await supabase.from('judicializacoes').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
+    if (judicData) setJudicializacoes(judicData)
+
+    const { data: enviosData } = await supabase.from('controle_envios').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
+    if (enviosData) setControleEnvios(enviosData)
+
+    setPedidosPeriodoSelecionado(true)
   }
 
   const addPeriodo = async () => {
@@ -1659,22 +1674,26 @@ function App() {
               {syncing ? <><RefreshCw className="w-3 h-3 animate-spin" /> Sync</> : <><Database className="w-3 h-3" /> Online</>}
             </div>
 
-            <Select value={periodoAtual} onValueChange={handlePeriodoChange}>
-              <SelectTrigger className="w-[180px]"><Calendar className="w-4 h-4 mr-2" /><SelectValue /></SelectTrigger>
-              <SelectContent>{periodos.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
-            </Select>
+            {activeTab !== 'pedidos' && (
+              <>
+                <Select value={periodoAtual} onValueChange={handlePeriodoChange}>
+                  <SelectTrigger className="w-[180px]"><Calendar className="w-4 h-4 mr-2" /><SelectValue /></SelectTrigger>
+                  <SelectContent>{periodos.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}</SelectContent>
+                </Select>
 
-            {isAdmin && (
-              <Dialog open={showNovoPeriodo} onOpenChange={setShowNovoPeriodo}>
-                <DialogTrigger asChild><Button variant="outline" size="sm"><Plus className="w-4 h-4 mr-1" />Período</Button></DialogTrigger>
-                <DialogContent>
-                  <DialogHeader><DialogTitle>Novo Período</DialogTitle></DialogHeader>
-                  <div className="space-y-4 pt-4">
-                    <Input placeholder="Ex: Fevereiro 2026" value={novoPeriodoNome} onChange={(e) => setNovoPeriodoNome(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addPeriodo()} />
-                    <Button onClick={addPeriodo} className="w-full">Criar</Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
+                {isAdmin && (
+                  <Dialog open={showNovoPeriodo} onOpenChange={setShowNovoPeriodo}>
+                    <DialogTrigger asChild><Button variant="outline" size="sm"><Plus className="w-4 h-4 mr-1" />Período</Button></DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader><DialogTitle>Novo Período</DialogTitle></DialogHeader>
+                      <div className="space-y-4 pt-4">
+                        <Input placeholder="Ex: Fevereiro 2026" value={novoPeriodoNome} onChange={(e) => setNovoPeriodoNome(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addPeriodo()} />
+                        <Button onClick={addPeriodo} className="w-full">Criar</Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                )}
+              </>
             )}
 
             <div className="flex items-center gap-2 pl-3 border-l">
@@ -1972,9 +1991,92 @@ function App() {
     )
   }
 
+  function renderPedidosPeriodoSelector() {
+    // Group periods by year
+    const periodosByYear: Record<number, Periodo[]> = {}
+    periodos.forEach(p => {
+      if (!periodosByYear[p.ano]) periodosByYear[p.ano] = []
+      periodosByYear[p.ano].push(p)
+    })
+    const sortedYears = Object.keys(periodosByYear).map(Number).sort((a, b) => b - a)
+
+    const mesesNomes: Record<number, string> = {
+      1: 'Jan', 2: 'Fev', 3: 'Mar', 4: 'Abr', 5: 'Mai', 6: 'Jun',
+      7: 'Jul', 8: 'Ago', 9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'
+    }
+
+    return (
+      <div className="space-y-8">
+        <div className="text-center">
+          <div className="inline-flex p-4 bg-orange-100 dark:bg-orange-900/30 rounded-2xl mb-4">
+            <Calendar className="w-10 h-10 text-orange-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Selecione o Período</h2>
+          <p className="text-slate-500 dark:text-slate-400">Escolha o mês para visualizar os pedidos</p>
+        </div>
+
+        {sortedYears.map(year => (
+          <div key={year}>
+            <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-4">{year}</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {periodosByYear[year]
+                .sort((a, b) => b.mes - a.mes)
+                .map(p => (
+                <Card
+                  key={p.id}
+                  className="cursor-pointer hover:shadow-lg hover:border-orange-300 dark:hover:border-orange-600 transition-all duration-200 hover:-translate-y-1"
+                  onClick={() => handlePedidosPeriodoSelect(p.id)}
+                >
+                  <CardContent className="p-6 text-center">
+                    <div className="text-3xl font-bold text-orange-500 mb-1">{mesesNomes[p.mes] || p.mes}</div>
+                    <div className="text-sm text-slate-500 dark:text-slate-400">{p.nome}</div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {isAdmin && (
+          <div className="text-center pt-4">
+            <Dialog open={showNovoPeriodo} onOpenChange={setShowNovoPeriodo}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="lg" className="border-dashed border-2">
+                  <Plus className="w-5 h-5 mr-2" />Criar Novo Período
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Novo Período</DialogTitle></DialogHeader>
+                <div className="space-y-4 pt-4">
+                  <Input placeholder="Ex: Fevereiro 2026" value={novoPeriodoNome} onChange={(e) => setNovoPeriodoNome(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addPeriodo()} />
+                  <Button onClick={addPeriodo} className="w-full">Criar</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   function renderPedidos() {
+    if (!pedidosPeriodoSelecionado) {
+      return renderPedidosPeriodoSelector()
+    }
+
     return (
       <>
+        {/* Back button + period name */}
+        <div className="flex items-center gap-3 mb-6">
+          <Button variant="ghost" size="sm" onClick={() => { setPedidosPeriodoSelecionado(false); setPedidos([]) }} className="text-slate-500 hover:text-slate-700">
+            <ArrowLeft className="w-4 h-4 mr-1" /> Voltar
+          </Button>
+          <span className="text-sm text-slate-400">|</span>
+          <span className="text-sm font-medium text-slate-600 dark:text-slate-400 flex items-center gap-2">
+            <Calendar className="w-4 h-4" /> {currentPeriodo?.nome}
+          </span>
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-8">
           <Card><CardContent className="p-5"><div className="flex items-center justify-between"><div><p className="text-sm text-slate-500">Total</p><p className="text-3xl font-bold">{stats.total}</p></div><div className="p-3 bg-slate-100 rounded-xl"><Package className="w-6 h-6" /></div></div></CardContent></Card>
