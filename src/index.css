@@ -33,6 +33,8 @@
   --status-anvisa: 40 90% 50%;
   --status-problema: 0 75% 55%;
   --status-atraso: 25 90% 55%;
+  --status-doc-recusado: 340 70% 50%;
+  --status-thc: 170 60% 40%;
 }
 
 .dark {
@@ -62,6 +64,8 @@
   --status-anvisa: 40 80% 50%;
   --status-problema: 0 65% 50%;
   --status-atraso: 25 80% 50%;
+  --status-doc-recusado: 340 60% 50%;
+  --status-thc: 170 50% 40%;
 }
 
 @layer base {
@@ -125,6 +129,18 @@
   border-color: hsl(var(--status-atraso) / 0.3);
 }
 
+.status-doc-recusado {
+  background-color: hsl(var(--status-doc-recusado) / 0.15);
+  color: hsl(var(--status-doc-recusado));
+  border-color: hsl(var(--status-doc-recusado) / 0.3);
+}
+
+.status-thc {
+  background-color: hsl(var(--status-thc) / 0.15);
+  color: hsl(var(--status-thc));
+  border-color: hsl(var(--status-thc) / 0.3);
+}
+
 /* Card status borders */
 .card-separacao {
   border-color: hsl(var(--status-separacao) / 0.4);
@@ -144,6 +160,14 @@
 
 .card-atraso {
   border-color: hsl(var(--status-atraso) / 0.4);
+}
+
+.card-doc-recusado {
+  border-color: hsl(var(--status-doc-recusado) / 0.4);
+}
+
+.card-thc {
+  border-color: hsl(var(--status-thc) / 0.4);
 }
 
 /* Icon backgrounds */
@@ -172,6 +196,16 @@
   color: hsl(var(--status-atraso));
 }
 
+.icon-bg-doc-recusado {
+  background-color: hsl(var(--status-doc-recusado) / 0.15);
+  color: hsl(var(--status-doc-recusado));
+}
+
+.icon-bg-thc {
+  background-color: hsl(var(--status-thc) / 0.15);
+  color: hsl(var(--status-thc));
+}
+
 /* Text colors for status */
 .text-separacao {
   color: hsl(var(--status-separacao));
@@ -191,6 +225,14 @@
 
 .text-atraso {
   color: hsl(var(--status-atraso));
+}
+
+.text-doc-recusado {
+  color: hsl(var(--status-doc-recusado));
+}
+
+.text-thc {
+  color: hsl(var(--status-thc));
 }
 
 /* Animation for sync indicator */
