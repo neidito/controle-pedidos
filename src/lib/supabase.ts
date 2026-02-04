@@ -104,4 +104,51 @@ CREATE POLICY "Allow all usuarios" ON usuarios FOR ALL USING (true) WITH CHECK (
 CREATE POLICY "Allow all vendedores" ON vendedores FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all periodos" ON periodos FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all pedidos" ON pedidos FOR ALL USING (true) WITH CHECK (true);
+
+-- Create clientes table (for budget generator)
+CREATE TABLE IF NOT EXISTS clientes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  razao_social VARCHAR(255) NOT NULL,
+  cnpj VARCHAR(30),
+  endereco VARCHAR(500),
+  cidade VARCHAR(100),
+  estado VARCHAR(50),
+  cep VARCHAR(20),
+  telefone VARCHAR(50),
+  email VARCHAR(255),
+  contato VARCHAR(255),
+  ativo BOOLEAN DEFAULT true,
+  criado_em TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create orcamentos table (budgets)
+CREATE TABLE IF NOT EXISTS orcamentos (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  numero VARCHAR(50) NOT NULL,
+  data DATE NOT NULL,
+  cliente_id UUID REFERENCES clientes(id),
+  cliente_nome VARCHAR(255),
+  empresa_nome VARCHAR(255) NOT NULL DEFAULT 'Carmens Medicinals',
+  empresa_endereco VARCHAR(500),
+  empresa_cidade VARCHAR(255),
+  empresa_telefone VARCHAR(50),
+  empresa_email VARCHAR(255),
+  observacoes TEXT,
+  valor_total DECIMAL(12,2) DEFAULT 0,
+  status VARCHAR(20) NOT NULL DEFAULT 'Rascunho' CHECK (status IN ('Rascunho', 'Enviado', 'Aprovado', 'Recusado')),
+  itens JSONB DEFAULT '[]',
+  criado_por UUID REFERENCES usuarios(id),
+  criado_em TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable RLS for new tables
+ALTER TABLE clientes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orcamentos ENABLE ROW LEVEL SECURITY;
+
+-- Create policies for new tables
+DROP POLICY IF EXISTS "Allow all clientes" ON clientes;
+DROP POLICY IF EXISTS "Allow all orcamentos" ON orcamentos;
+
+CREATE POLICY "Allow all clientes" ON clientes FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all orcamentos" ON orcamentos FOR ALL USING (true) WITH CHECK (true);
 `

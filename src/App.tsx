@@ -1,4 +1,4 @@
-import { useState, useEffect, Component, useRef } from 'react'
+import { useState, useEffect, Component, useRef, useCallback } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,14 +9,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
-import { 
+import {
   Package, Clock, Truck, AlertCircle, Plus, Trash2, Search, Calendar, FileX, Receipt,
   RefreshCw, Loader2, PackageOpen, LogOut, UserPlus, Shield, User,
   Eye, EyeOff, Lock, UserCog, CheckCircle2, XCircle, Sun, Moon, Database,
   Pencil, Copy, Upload, FileSpreadsheet, Download, Scale, Send,
-  StickyNote, ListTodo, Flag, X, Check, LayoutDashboard, Palette, ArrowLeft
+  StickyNote, ListTodo, Flag, X, Check, LayoutDashboard, Palette, ArrowLeft,
+  FileText, Building2, Users
 } from 'lucide-react'
 import { getSupabase } from '@/lib/supabase'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 // Error Boundary
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
@@ -160,6 +163,49 @@ interface ListaTarefas {
   posicao_x: number
   posicao_y: number
   criado_em: string
+}
+
+interface Cliente {
+  id: string
+  razao_social: string
+  cnpj: string
+  endereco: string
+  cidade: string
+  estado: string
+  cep: string
+  telefone: string
+  email: string
+  contato: string
+  ativo: boolean
+  criado_em: string
+}
+
+interface OrcamentoItem {
+  id?: string
+  orcamento_id?: string
+  descricao: string
+  qtd: number
+  preco_unitario: number
+  preco_total: number
+}
+
+interface Orcamento {
+  id: string
+  numero: string
+  data: string
+  cliente_id: string
+  cliente_nome?: string
+  empresa_nome: string
+  empresa_endereco: string
+  empresa_cidade: string
+  empresa_telefone: string
+  empresa_email: string
+  observacoes: string
+  valor_total: number
+  status: 'Rascunho' | 'Enviado' | 'Aprovado' | 'Recusado'
+  criado_por: string
+  criado_em: string
+  itens?: OrcamentoItem[]
 }
 
 const SESSION_KEY = 'controle-pedidos-session'
@@ -717,6 +763,34 @@ function App() {
   // ID do pedido que está sendo editado (reservado) pelo usuário atual
   const [editingPedidoId, setEditingPedidoId] = useState<string | null>(null)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+
+  // Estados para Gerador de Orçamento
+  const [clientes, setClientes] = useState<Cliente[]>([])
+  const [orcamentos, setOrcamentos] = useState<Orcamento[]>([])
+  const [showAddCliente, setShowAddCliente] = useState(false)
+  const [showEditCliente, setShowEditCliente] = useState(false)
+  const [editingCliente, setEditingCliente] = useState<Cliente | null>(null)
+  const [newCliente, setNewCliente] = useState({
+    razao_social: '', cnpj: '', endereco: '', cidade: '', estado: '', cep: '', telefone: '', email: '', contato: ''
+  })
+  const [orcamentoView, setOrcamentoView] = useState<'list' | 'new' | 'edit' | 'clientes'>('list')
+  const [editingOrcamento, setEditingOrcamento] = useState<Orcamento | null>(null)
+  const [orcamentoForm, setOrcamentoForm] = useState({
+    numero: '',
+    data: getTodayInSaoPaulo(),
+    cliente_id: '',
+    empresa_nome: 'Carmens Medicinals',
+    empresa_endereco: '1241 Stirling rd UNIT 101',
+    empresa_cidade: 'Dania Beach, Florida - USA, 33004',
+    empresa_telefone: '',
+    empresa_email: '',
+    observacoes: '',
+    itens: [{ descricao: '', qtd: 1, preco_unitario: 0, preco_total: 0 }] as OrcamentoItem[]
+  })
+  const [orcamentoSearchTerm, setOrcamentoSearchTerm] = useState('')
+  const [clienteSearchTerm, setClienteSearchTerm] = useState('')
+  const [logoBase64, setLogoBase64] = useState<string | null>(null)
+  const logoInputRef = useRef<HTMLInputElement>(null)
   
   // Copiar texto para clipboard
   const copyToClipboard = (text: string) => {
@@ -787,7 +861,20 @@ function App() {
         // Load THC / 2000 pedidos (all periods)
         const { data: thcData } = await supabase.from('pedidos').select('*').eq('status', 'THC / 2000').order('criado_em', { ascending: false })
         if (thcData) setThcPedidos(thcData)
-      } else {
+      }
+
+      // Load clientes e orcamentos (budget generator)
+      const { data: clientesData } = await supabase.from('clientes').select('*').order('razao_social')
+      if (clientesData) setClientes(clientesData)
+
+      const { data: orcamentosData } = await supabase.from('orcamentos').select('*').order('criado_em', { ascending: false })
+      if (orcamentosData) setOrcamentos(orcamentosData)
+
+      // Load logo from localStorage
+      const savedLogo = localStorage.getItem('orcamento-logo')
+      if (savedLogo) setLogoBase64(savedLogo)
+
+      if (!(periodosData && periodosData.length > 0)) {
         // Create default period
         const current = getCurrentPeriodo()
         const { data: newPeriodo } = await supabase.from('periodos').insert({ nome: current.nome, mes: current.mes, ano: current.ano }).select().single()
@@ -1675,6 +1762,398 @@ function App() {
     setTarefas(tarefas.filter(t => t.id !== id))
   }
 
+  // ==================== CRUD CLIENTES ====================
+  const loadClientes = async () => {
+    const supabase = getSupabase()
+    const { data } = await supabase.from('clientes').select('*').order('razao_social')
+    if (data) setClientes(data)
+  }
+
+  const addCliente = async () => {
+    if (!newCliente.razao_social.trim()) {
+      toast.error('Razão social é obrigatória')
+      return
+    }
+    const supabase = getSupabase()
+    const { error } = await supabase.from('clientes').insert({
+      ...newCliente,
+      ativo: true
+    })
+    if (error) {
+      toast.error('Erro ao cadastrar cliente')
+      return
+    }
+    toast.success('Cliente cadastrado!')
+    setNewCliente({ razao_social: '', cnpj: '', endereco: '', cidade: '', estado: '', cep: '', telefone: '', email: '', contato: '' })
+    setShowAddCliente(false)
+    loadClientes()
+  }
+
+  const saveEditCliente = async () => {
+    if (!editingCliente) return
+    const supabase = getSupabase()
+    const { error } = await supabase.from('clientes').update({
+      razao_social: editingCliente.razao_social,
+      cnpj: editingCliente.cnpj,
+      endereco: editingCliente.endereco,
+      cidade: editingCliente.cidade,
+      estado: editingCliente.estado,
+      cep: editingCliente.cep,
+      telefone: editingCliente.telefone,
+      email: editingCliente.email,
+      contato: editingCliente.contato,
+    }).eq('id', editingCliente.id)
+    if (error) {
+      toast.error('Erro ao atualizar cliente')
+      return
+    }
+    toast.success('Cliente atualizado!')
+    setShowEditCliente(false)
+    setEditingCliente(null)
+    loadClientes()
+  }
+
+  const deleteCliente = async (id: string) => {
+    const supabase = getSupabase()
+    const { error } = await supabase.from('clientes').delete().eq('id', id)
+    if (error) {
+      toast.error('Erro ao excluir cliente. Pode estar vinculado a orçamentos.')
+      return
+    }
+    toast.success('Cliente excluído!')
+    loadClientes()
+  }
+
+  // ==================== CRUD ORCAMENTOS ====================
+  const loadOrcamentos = async () => {
+    const supabase = getSupabase()
+    const { data } = await supabase.from('orcamentos').select('*').order('criado_em', { ascending: false })
+    if (data) setOrcamentos(data)
+  }
+
+  const generateOrcamentoNumber = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const count = orcamentos.filter(o => {
+      const d = new Date(o.criado_em)
+      return d.getFullYear() === year && d.getMonth() + 1 === parseInt(month)
+    }).length + 1
+    return `ORC${year}${month}${String(count).padStart(3, '0')}`
+  }
+
+  const resetOrcamentoForm = () => {
+    setOrcamentoForm({
+      numero: generateOrcamentoNumber(),
+      data: getTodayInSaoPaulo(),
+      cliente_id: '',
+      empresa_nome: 'Carmens Medicinals',
+      empresa_endereco: '1241 Stirling rd UNIT 101',
+      empresa_cidade: 'Dania Beach, Florida - USA, 33004',
+      empresa_telefone: '',
+      empresa_email: '',
+      observacoes: '',
+      itens: [{ descricao: '', qtd: 1, preco_unitario: 0, preco_total: 0 }]
+    })
+  }
+
+  const addOrcamentoItem = () => {
+    setOrcamentoForm({
+      ...orcamentoForm,
+      itens: [...orcamentoForm.itens, { descricao: '', qtd: 1, preco_unitario: 0, preco_total: 0 }]
+    })
+  }
+
+  const removeOrcamentoItem = (index: number) => {
+    if (orcamentoForm.itens.length <= 1) return
+    setOrcamentoForm({
+      ...orcamentoForm,
+      itens: orcamentoForm.itens.filter((_, i) => i !== index)
+    })
+  }
+
+  const updateOrcamentoItem = (index: number, field: keyof OrcamentoItem, value: string | number) => {
+    const itens = [...orcamentoForm.itens]
+    const item = { ...itens[index] }
+    if (field === 'descricao') {
+      item.descricao = value as string
+    } else if (field === 'qtd') {
+      item.qtd = typeof value === 'number' ? value : parseInt(value as string) || 0
+      item.preco_total = item.qtd * item.preco_unitario
+    } else if (field === 'preco_unitario') {
+      item.preco_unitario = typeof value === 'number' ? value : parseCurrency(value as string)
+      item.preco_total = item.qtd * item.preco_unitario
+    }
+    itens[index] = item
+    setOrcamentoForm({ ...orcamentoForm, itens })
+  }
+
+  const calcularTotalOrcamento = () => {
+    return orcamentoForm.itens.reduce((sum, item) => sum + (item.qtd * item.preco_unitario), 0)
+  }
+
+  const saveOrcamento = async (status: 'Rascunho' | 'Enviado' = 'Rascunho') => {
+    if (!orcamentoForm.cliente_id) {
+      toast.error('Selecione um cliente')
+      return
+    }
+    if (orcamentoForm.itens.some(i => !i.descricao.trim())) {
+      toast.error('Preencha a descrição de todos os itens')
+      return
+    }
+
+    const supabase = getSupabase()
+    const cliente = clientes.find(c => c.id === orcamentoForm.cliente_id)
+    const valorTotal = calcularTotalOrcamento()
+
+    const orcamentoData = {
+      numero: orcamentoForm.numero,
+      data: orcamentoForm.data,
+      cliente_id: orcamentoForm.cliente_id,
+      cliente_nome: cliente?.razao_social || '',
+      empresa_nome: orcamentoForm.empresa_nome,
+      empresa_endereco: orcamentoForm.empresa_endereco,
+      empresa_cidade: orcamentoForm.empresa_cidade,
+      empresa_telefone: orcamentoForm.empresa_telefone,
+      empresa_email: orcamentoForm.empresa_email,
+      observacoes: orcamentoForm.observacoes,
+      valor_total: valorTotal,
+      status,
+      criado_por: currentUser?.id,
+      itens: orcamentoForm.itens.map(i => ({
+        descricao: i.descricao,
+        qtd: i.qtd,
+        preco_unitario: i.preco_unitario,
+        preco_total: i.qtd * i.preco_unitario
+      }))
+    }
+
+    if (editingOrcamento) {
+      const { error } = await supabase.from('orcamentos').update(orcamentoData).eq('id', editingOrcamento.id)
+      if (error) {
+        toast.error('Erro ao atualizar orçamento')
+        return
+      }
+      toast.success('Orçamento atualizado!')
+    } else {
+      const { error } = await supabase.from('orcamentos').insert(orcamentoData)
+      if (error) {
+        toast.error('Erro ao salvar orçamento')
+        return
+      }
+      toast.success('Orçamento salvo!')
+    }
+
+    setOrcamentoView('list')
+    setEditingOrcamento(null)
+    loadOrcamentos()
+  }
+
+  const deleteOrcamento = async (id: string) => {
+    const supabase = getSupabase()
+    const { error } = await supabase.from('orcamentos').delete().eq('id', id)
+    if (error) {
+      toast.error('Erro ao excluir orçamento')
+      return
+    }
+    toast.success('Orçamento excluído!')
+    loadOrcamentos()
+  }
+
+  const editOrcamento = (orc: Orcamento) => {
+    setEditingOrcamento(orc)
+    setOrcamentoForm({
+      numero: orc.numero,
+      data: orc.data,
+      cliente_id: orc.cliente_id,
+      empresa_nome: orc.empresa_nome,
+      empresa_endereco: orc.empresa_endereco,
+      empresa_cidade: orc.empresa_cidade,
+      empresa_telefone: orc.empresa_telefone,
+      empresa_email: orc.empresa_email,
+      observacoes: orc.observacoes,
+      itens: orc.itens && orc.itens.length > 0 ? orc.itens : [{ descricao: '', qtd: 1, preco_unitario: 0, preco_total: 0 }]
+    })
+    setOrcamentoView('edit')
+  }
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = reader.result as string
+      setLogoBase64(base64)
+      localStorage.setItem('orcamento-logo', base64)
+      toast.success('Logo carregado!')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // ==================== GERAÇÃO DE PDF ====================
+  const generatePDF = useCallback((orc: Orcamento) => {
+    const doc = new jsPDF('p', 'mm', 'a4')
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const margin = 15
+    const contentWidth = pageWidth - margin * 2
+    let yPos = margin
+
+    // Colors
+    const primaryColor: [number, number, number] = [23, 37, 84] // dark navy
+    const accentColor: [number, number, number] = [234, 88, 12] // orange
+    const lightGray: [number, number, number] = [241, 245, 249]
+
+    // Header background
+    doc.setFillColor(...lightGray)
+    doc.roundedRect(margin, yPos, contentWidth, 45, 3, 3, 'F')
+
+    // Logo (682x215 aspect ratio = ~3.17:1)
+    if (logoBase64) {
+      try {
+        const logoWidth = 50
+        const logoHeight = logoWidth * (215 / 682) // maintain aspect ratio
+        const logoY = yPos + (45 - logoHeight) / 2 // vertically center in header
+        doc.addImage(logoBase64, 'PNG', margin + 5, logoY, logoWidth, logoHeight)
+      } catch { /* ignore logo errors */ }
+    }
+
+    // Company info (right side)
+    const companyX = pageWidth - margin - 5
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...primaryColor)
+    doc.text(orc.empresa_nome, companyX, yPos + 12, { align: 'right' })
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(100, 116, 139)
+    doc.text(orc.empresa_endereco, companyX, yPos + 18, { align: 'right' })
+    doc.text(orc.empresa_cidade, companyX, yPos + 23, { align: 'right' })
+    if (orc.empresa_telefone) doc.text(orc.empresa_telefone, companyX, yPos + 28, { align: 'right' })
+    if (orc.empresa_email) doc.text(orc.empresa_email, companyX, yPos + 33, { align: 'right' })
+
+    yPos += 52
+
+    // Title bar
+    doc.setFillColor(...primaryColor)
+    doc.roundedRect(margin, yPos, contentWidth, 12, 2, 2, 'F')
+    doc.setFontSize(14)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(255, 255, 255)
+    doc.text('Commercial Invoice', margin + 5, yPos + 8.5)
+
+    // Order info on the right of title bar
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Date: ${formatDateBR(orc.data)}  |  Order: ${orc.numero}`, pageWidth - margin - 5, yPos + 8.5, { align: 'right' })
+
+    yPos += 20
+
+    // Client info box
+    const cliente = clientes.find(c => c.id === orc.cliente_id)
+    doc.setFillColor(...lightGray)
+    doc.roundedRect(margin, yPos, contentWidth, 32, 2, 2, 'F')
+
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...primaryColor)
+    doc.text('Bill To', margin + 5, yPos + 7)
+
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(51, 65, 85)
+    let clientY = yPos + 13
+    if (cliente) {
+      doc.setFont('helvetica', 'bold')
+      doc.text(cliente.razao_social, margin + 5, clientY)
+      doc.setFont('helvetica', 'normal')
+      clientY += 5
+      if (cliente.cnpj) { doc.text(`CNPJ: ${cliente.cnpj}`, margin + 5, clientY); clientY += 5 }
+      if (cliente.endereco) { doc.text(cliente.endereco, margin + 5, clientY); clientY += 5 }
+      if (cliente.cidade || cliente.estado) { doc.text(`${cliente.cidade}${cliente.estado ? ', ' + cliente.estado : ''}${cliente.cep ? ' - ' + cliente.cep : ''}`, margin + 5, clientY) }
+    } else {
+      doc.text(orc.cliente_nome || 'Cliente não encontrado', margin + 5, clientY)
+    }
+
+    yPos += 38
+
+    // Items table
+    const items = orc.itens || []
+    const tableData = items.map(item => [
+      item.descricao,
+      String(item.qtd).padStart(2, '0'),
+      formatCurrency(item.preco_unitario),
+      formatCurrency(item.qtd * item.preco_unitario)
+    ])
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Description', 'Qty', 'Unit Price', 'Amount']],
+      body: tableData,
+      margin: { left: margin, right: margin },
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+        textColor: [51, 65, 85],
+        lineColor: [226, 232, 240],
+        lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: primaryColor,
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 10,
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252],
+      },
+      columnStyles: {
+        0: { cellWidth: 'auto' },
+        1: { cellWidth: 25, halign: 'center' },
+        2: { cellWidth: 35, halign: 'right' },
+        3: { cellWidth: 35, halign: 'right' },
+      },
+    })
+
+    // Total
+    const finalY = (doc as any).lastAutoTable.finalY + 5
+    doc.setFillColor(...primaryColor)
+    doc.roundedRect(pageWidth - margin - 80, finalY, 80, 14, 2, 2, 'F')
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(255, 255, 255)
+    doc.text('Total BRL', pageWidth - margin - 75, finalY + 9.5)
+    doc.text(`R$ ${formatCurrency(orc.valor_total)}`, pageWidth - margin - 5, finalY + 9.5, { align: 'right' })
+
+    // Observations
+    if (orc.observacoes) {
+      const obsY = finalY + 22
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(...primaryColor)
+      doc.text('Observações', margin, obsY)
+      doc.setDrawColor(...accentColor)
+      doc.setLineWidth(0.5)
+      doc.line(margin, obsY + 2, margin + 30, obsY + 2)
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(100, 116, 139)
+      const splitObs = doc.splitTextToSize(orc.observacoes, contentWidth)
+      doc.text(splitObs, margin, obsY + 8)
+    }
+
+    // Footer
+    const footerY = doc.internal.pageSize.getHeight() - 15
+    doc.setDrawColor(226, 232, 240)
+    doc.setLineWidth(0.3)
+    doc.line(margin, footerY - 5, pageWidth - margin, footerY - 5)
+    doc.setFontSize(7)
+    doc.setTextColor(148, 163, 184)
+    doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')} | ${orc.empresa_nome}`, pageWidth / 2, footerY, { align: 'center' })
+
+    doc.save(`Orcamento_${orc.numero}.pdf`)
+    toast.success('PDF gerado com sucesso!')
+  }, [clientes, logoBase64])
+
   const filteredPedidos = pedidos.filter(p => {
     const matchStatus = filtroStatus === 'Todos' || p.status === filtroStatus
     const matchSearch = !searchTerm || p.cliente.toLowerCase().includes(searchTerm.toLowerCase()) || p.nr_pedido.toLowerCase().includes(searchTerm.toLowerCase()) || p.produto.toLowerCase().includes(searchTerm.toLowerCase())
@@ -1793,6 +2272,7 @@ function App() {
               <TabsTrigger value="envios"><Send className="w-4 h-4 mr-2" />Controle de Envios</TabsTrigger>
               <TabsTrigger value="thc2000"><Receipt className="w-4 h-4 mr-2" />THC-2000</TabsTrigger>
               <TabsTrigger value="vendedores"><UserCog className="w-4 h-4 mr-2" />Vendedores</TabsTrigger>
+              <TabsTrigger value="orcamentos"><FileText className="w-4 h-4 mr-2" />Gerador de Orçamento</TabsTrigger>
               <TabsTrigger value="usuarios"><Shield className="w-4 h-4 mr-2" />Usuários</TabsTrigger>
             </TabsList>
             <TabsContent value="workspace">{renderAreaTrabalho()}</TabsContent>
@@ -1801,6 +2281,7 @@ function App() {
             <TabsContent value="envios">{renderControleEnvios()}</TabsContent>
             <TabsContent value="thc2000">{renderThc2000()}</TabsContent>
             <TabsContent value="vendedores">{renderVendedores()}</TabsContent>
+            <TabsContent value="orcamentos">{renderGeradorOrcamento()}</TabsContent>
             <TabsContent value="usuarios">{renderUsuarios()}</TabsContent>
           </Tabs>
         ) : (
@@ -3400,6 +3881,574 @@ function App() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      </div>
+    )
+  }
+
+  // ==================== GERADOR DE ORÇAMENTO ====================
+  function renderGeradorOrcamento() {
+    const statusConfig: Record<string, { color: string; bgColor: string }> = {
+      'Rascunho': { color: 'text-slate-700', bgColor: 'bg-slate-100' },
+      'Enviado': { color: 'text-blue-700', bgColor: 'bg-blue-100' },
+      'Aprovado': { color: 'text-green-700', bgColor: 'bg-green-100' },
+      'Recusado': { color: 'text-red-700', bgColor: 'bg-red-100' },
+    }
+
+    const filteredOrcamentos = orcamentos.filter(o =>
+      !orcamentoSearchTerm ||
+      o.numero.toLowerCase().includes(orcamentoSearchTerm.toLowerCase()) ||
+      (o.cliente_nome || '').toLowerCase().includes(orcamentoSearchTerm.toLowerCase())
+    )
+
+    const filteredClientes = clientes.filter(c =>
+      !clienteSearchTerm ||
+      c.razao_social.toLowerCase().includes(clienteSearchTerm.toLowerCase()) ||
+      (c.cnpj || '').includes(clienteSearchTerm)
+    )
+
+    // ---- CLIENT MANAGEMENT VIEW ----
+    if (orcamentoView === 'clientes') {
+      return (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" onClick={() => setOrcamentoView('list')}>
+                <ArrowLeft className="w-4 h-4 mr-1" />Voltar
+              </Button>
+              <div>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Users className="w-6 h-6 text-indigo-600" />
+                  Cadastro de Clientes
+                </h2>
+                <p className="text-sm text-slate-500">{clientes.length} cliente(s) cadastrado(s)</p>
+              </div>
+            </div>
+            <Button onClick={() => setShowAddCliente(true)} className="bg-indigo-600 hover:bg-indigo-700">
+              <Plus className="w-4 h-4 mr-2" />Novo Cliente
+            </Button>
+          </div>
+
+          {/* Search */}
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder="Buscar por nome ou CNPJ..."
+              value={clienteSearchTerm}
+              onChange={(e) => setClienteSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+
+          {/* Client list */}
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Razão Social</TableHead>
+                    <TableHead>CNPJ</TableHead>
+                    <TableHead>Cidade/UF</TableHead>
+                    <TableHead>Contato</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredClientes.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                        <Building2 className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                        Nenhum cliente cadastrado
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredClientes.map(cliente => (
+                      <TableRow key={cliente.id}>
+                        <TableCell className="font-medium">{cliente.razao_social}</TableCell>
+                        <TableCell>{cliente.cnpj || '-'}</TableCell>
+                        <TableCell>{cliente.cidade ? `${cliente.cidade}${cliente.estado ? '/' + cliente.estado : ''}` : '-'}</TableCell>
+                        <TableCell>{cliente.contato || '-'}</TableCell>
+                        <TableCell>{cliente.email || '-'}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => { setEditingCliente(cliente); setShowEditCliente(true) }}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => { if (confirm('Excluir este cliente?')) deleteCliente(cliente.id) }}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Add Client Dialog */}
+          <Dialog open={showAddCliente} onOpenChange={setShowAddCliente}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Novo Cliente</DialogTitle>
+                <DialogDescription>Cadastre as informações do cliente</DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="text-sm font-medium mb-1 block">Razão Social *</label>
+                  <Input value={newCliente.razao_social} onChange={e => setNewCliente({ ...newCliente, razao_social: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">CNPJ</label>
+                  <Input value={newCliente.cnpj} onChange={e => setNewCliente({ ...newCliente, cnpj: e.target.value })} placeholder="00.000.000/0000-00" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Contato</label>
+                  <Input value={newCliente.contato} onChange={e => setNewCliente({ ...newCliente, contato: e.target.value })} />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-sm font-medium mb-1 block">Endereço</label>
+                  <Input value={newCliente.endereco} onChange={e => setNewCliente({ ...newCliente, endereco: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Cidade</label>
+                  <Input value={newCliente.cidade} onChange={e => setNewCliente({ ...newCliente, cidade: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Estado</label>
+                  <Input value={newCliente.estado} onChange={e => setNewCliente({ ...newCliente, estado: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">CEP</label>
+                  <Input value={newCliente.cep} onChange={e => setNewCliente({ ...newCliente, cep: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Telefone</label>
+                  <Input value={newCliente.telefone} onChange={e => setNewCliente({ ...newCliente, telefone: e.target.value })} />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-sm font-medium mb-1 block">Email</label>
+                  <Input value={newCliente.email} onChange={e => setNewCliente({ ...newCliente, email: e.target.value })} type="email" />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowAddCliente(false)}>Cancelar</Button>
+                <Button onClick={addCliente} className="bg-indigo-600 hover:bg-indigo-700">Cadastrar</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Edit Client Dialog */}
+          <Dialog open={showEditCliente} onOpenChange={setShowEditCliente}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Editar Cliente</DialogTitle>
+                <DialogDescription>Atualize as informações do cliente</DialogDescription>
+              </DialogHeader>
+              {editingCliente && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="text-sm font-medium mb-1 block">Razão Social *</label>
+                    <Input value={editingCliente.razao_social} onChange={e => setEditingCliente({ ...editingCliente, razao_social: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">CNPJ</label>
+                    <Input value={editingCliente.cnpj} onChange={e => setEditingCliente({ ...editingCliente, cnpj: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Contato</label>
+                    <Input value={editingCliente.contato} onChange={e => setEditingCliente({ ...editingCliente, contato: e.target.value })} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-sm font-medium mb-1 block">Endereço</label>
+                    <Input value={editingCliente.endereco} onChange={e => setEditingCliente({ ...editingCliente, endereco: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Cidade</label>
+                    <Input value={editingCliente.cidade} onChange={e => setEditingCliente({ ...editingCliente, cidade: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Estado</label>
+                    <Input value={editingCliente.estado} onChange={e => setEditingCliente({ ...editingCliente, estado: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">CEP</label>
+                    <Input value={editingCliente.cep} onChange={e => setEditingCliente({ ...editingCliente, cep: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Telefone</label>
+                    <Input value={editingCliente.telefone} onChange={e => setEditingCliente({ ...editingCliente, telefone: e.target.value })} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-sm font-medium mb-1 block">Email</label>
+                    <Input value={editingCliente.email} onChange={e => setEditingCliente({ ...editingCliente, email: e.target.value })} type="email" />
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowEditCliente(false)}>Cancelar</Button>
+                <Button onClick={saveEditCliente} className="bg-indigo-600 hover:bg-indigo-700">Salvar</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      )
+    }
+
+    // ---- NEW / EDIT BUDGET FORM ----
+    if (orcamentoView === 'new' || orcamentoView === 'edit') {
+      return (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" onClick={() => { setOrcamentoView('list'); setEditingOrcamento(null) }}>
+                <ArrowLeft className="w-4 h-4 mr-1" />Voltar
+              </Button>
+              <h2 className="text-xl font-bold">
+                {orcamentoView === 'edit' ? 'Editar Orçamento' : 'Novo Orçamento'}
+              </h2>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left column - Company & Client */}
+            <div className="lg:col-span-1 space-y-4">
+              {/* Logo Upload */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium">Logo da Empresa</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col items-center gap-3">
+                    {logoBase64 ? (
+                      <div className="relative">
+                        <img src={logoBase64} alt="Logo" className="h-20 object-contain rounded border p-2" />
+                        <Button variant="ghost" size="sm" className="absolute -top-2 -right-2 h-6 w-6 p-0 rounded-full bg-red-100 hover:bg-red-200"
+                          onClick={() => { setLogoBase64(null); localStorage.removeItem('orcamento-logo') }}>
+                          <X className="w-3 h-3 text-red-600" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="w-full h-20 border-2 border-dashed rounded flex items-center justify-center text-slate-400 text-sm">
+                        Sem logo
+                      </div>
+                    )}
+                    <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                    <Button variant="outline" size="sm" onClick={() => logoInputRef.current?.click()}>
+                      <Upload className="w-4 h-4 mr-1" />{logoBase64 ? 'Trocar' : 'Carregar'} Logo
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Company Info */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2"><Building2 className="w-4 h-4" />Empresa Emitente</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Nome da Empresa</label>
+                    <Input value={orcamentoForm.empresa_nome} onChange={e => setOrcamentoForm({ ...orcamentoForm, empresa_nome: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Endereço</label>
+                    <Input value={orcamentoForm.empresa_endereco} onChange={e => setOrcamentoForm({ ...orcamentoForm, empresa_endereco: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Cidade / País</label>
+                    <Input value={orcamentoForm.empresa_cidade} onChange={e => setOrcamentoForm({ ...orcamentoForm, empresa_cidade: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Telefone</label>
+                    <Input value={orcamentoForm.empresa_telefone} onChange={e => setOrcamentoForm({ ...orcamentoForm, empresa_telefone: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Email</label>
+                    <Input value={orcamentoForm.empresa_email} onChange={e => setOrcamentoForm({ ...orcamentoForm, empresa_email: e.target.value })} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Client Selection */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2"><User className="w-4 h-4" />Cliente (Solicitante)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Select value={orcamentoForm.cliente_id} onValueChange={v => setOrcamentoForm({ ...orcamentoForm, cliente_id: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione um cliente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clientes.filter(c => c.ativo !== false).map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.razao_social}{c.cnpj ? ` (${c.cnpj})` : ''}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {orcamentoForm.cliente_id && (() => {
+                    const sel = clientes.find(c => c.id === orcamentoForm.cliente_id)
+                    if (!sel) return null
+                    return (
+                      <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800 rounded text-sm space-y-1">
+                        <p className="font-medium">{sel.razao_social}</p>
+                        {sel.cnpj && <p className="text-slate-500">CNPJ: {sel.cnpj}</p>}
+                        {sel.endereco && <p className="text-slate-500">{sel.endereco}</p>}
+                        {sel.cidade && <p className="text-slate-500">{sel.cidade}{sel.estado ? `, ${sel.estado}` : ''}</p>}
+                      </div>
+                    )
+                  })()}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Right column - Order details & Items */}
+            <div className="lg:col-span-2 space-y-4">
+              {/* Order Info */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium">Dados do Orçamento</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">Número (Order)</label>
+                      <Input value={orcamentoForm.numero} onChange={e => setOrcamentoForm({ ...orcamentoForm, numero: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">Data</label>
+                      <Input type="date" value={orcamentoForm.data} onChange={e => setOrcamentoForm({ ...orcamentoForm, data: e.target.value })} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Products Table */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex justify-between items-center">
+                    <CardTitle className="text-sm font-medium">Produtos / Serviços</CardTitle>
+                    <Button variant="outline" size="sm" onClick={addOrcamentoItem}>
+                      <Plus className="w-4 h-4 mr-1" />Adicionar Item
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead className="w-20 text-center">Qtd</TableHead>
+                        <TableHead className="w-32 text-right">Preço Unit.</TableHead>
+                        <TableHead className="w-32 text-right">Total</TableHead>
+                        <TableHead className="w-12"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {orcamentoForm.itens.map((item, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>
+                            <Input
+                              value={item.descricao}
+                              onChange={e => updateOrcamentoItem(idx, 'descricao', e.target.value)}
+                              placeholder="Descrição do produto"
+                              className="border-0 shadow-none p-0 h-8"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={item.qtd}
+                              onChange={e => updateOrcamentoItem(idx, 'qtd', parseInt(e.target.value) || 0)}
+                              className="border-0 shadow-none p-0 h-8 text-center"
+                              min={1}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={formatCurrency(item.preco_unitario)}
+                              onChange={e => {
+                                const raw = e.target.value.replace(/[^\d.,]/g, '')
+                                updateOrcamentoItem(idx, 'preco_unitario', parseCurrency(raw))
+                              }}
+                              className="border-0 shadow-none p-0 h-8 text-right"
+                              placeholder="0,00"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {formatCurrency(item.qtd * item.preco_unitario)}
+                          </TableCell>
+                          <TableCell>
+                            {orcamentoForm.itens.length > 1 && (
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-400 hover:text-red-600" onClick={() => removeOrcamentoItem(idx)}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {/* Total */}
+                  <div className="flex justify-end px-4 py-3 border-t bg-slate-50 dark:bg-slate-800">
+                    <div className="text-right">
+                      <span className="text-sm text-slate-500 mr-4">Total BRL:</span>
+                      <span className="text-lg font-bold text-indigo-600">R$ {formatCurrency(calcularTotalOrcamento())}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Observations */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium">Observações</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <textarea
+                    value={orcamentoForm.observacoes}
+                    onChange={e => setOrcamentoForm({ ...orcamentoForm, observacoes: e.target.value })}
+                    className="w-full min-h-[100px] p-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm resize-y"
+                    placeholder="Condições de pagamento, prazo de entrega, informações adicionais..."
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => { setOrcamentoView('list'); setEditingOrcamento(null) }}>
+                  Cancelar
+                </Button>
+                <Button variant="outline" onClick={() => saveOrcamento('Rascunho')} className="border-slate-300">
+                  <FileText className="w-4 h-4 mr-2" />Salvar Rascunho
+                </Button>
+                <Button onClick={() => saveOrcamento('Enviado')} className="bg-indigo-600 hover:bg-indigo-700">
+                  <Check className="w-4 h-4 mr-2" />Salvar e Finalizar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // ---- BUDGET LIST VIEW (default) ----
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <FileText className="w-6 h-6 text-indigo-600" />
+              Gerador de Orçamento
+            </h2>
+            <p className="text-sm text-slate-500">{orcamentos.length} orçamento(s) gerado(s)</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setOrcamentoView('clientes')}>
+              <Users className="w-4 h-4 mr-2" />Clientes
+            </Button>
+            <Button onClick={() => { resetOrcamentoForm(); setEditingOrcamento(null); setOrcamentoView('new') }} className="bg-indigo-600 hover:bg-indigo-700">
+              <Plus className="w-4 h-4 mr-2" />Novo Orçamento
+            </Button>
+          </div>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold">{orcamentos.length}</p>
+              <p className="text-xs text-slate-500">Total</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold text-slate-600">{orcamentos.filter(o => o.status === 'Rascunho').length}</p>
+              <p className="text-xs text-slate-500">Rascunhos</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold text-blue-600">{orcamentos.filter(o => o.status === 'Enviado').length}</p>
+              <p className="text-xs text-slate-500">Enviados</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold text-green-600">{orcamentos.filter(o => o.status === 'Aprovado').length}</p>
+              <p className="text-xs text-slate-500">Aprovados</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Search */}
+        <div className="relative max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Input
+            placeholder="Buscar por número ou cliente..."
+            value={orcamentoSearchTerm}
+            onChange={(e) => setOrcamentoSearchTerm(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+
+        {/* Budget list */}
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Número</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead className="text-right">Valor Total</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredOrcamentos.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                      <FileText className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                      Nenhum orçamento encontrado
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredOrcamentos.map(orc => (
+                    <TableRow key={orc.id}>
+                      <TableCell className="font-mono font-medium">{orc.numero}</TableCell>
+                      <TableCell>{formatDateBR(orc.data)}</TableCell>
+                      <TableCell>{orc.cliente_nome || '-'}</TableCell>
+                      <TableCell className="text-right font-medium">R$ {formatCurrency(orc.valor_total)}</TableCell>
+                      <TableCell className="text-center">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusConfig[orc.status]?.bgColor || ''} ${statusConfig[orc.status]?.color || ''}`}>
+                          {orc.status}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="sm" title="Gerar PDF" onClick={() => generatePDF(orc)}>
+                            <Download className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" title="Editar" onClick={() => editOrcamento(orc)}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" title="Excluir"
+                            onClick={() => { if (confirm('Excluir este orçamento?')) deleteOrcamento(orc.id) }}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       </div>
     )
   }
