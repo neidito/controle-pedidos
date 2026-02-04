@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   total DECIMAL(10,2) DEFAULT 0,
   rastreio VARCHAR(100),
   status VARCHAR(50) NOT NULL DEFAULT 'Em Separação' CHECK (status IN ('Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso', 'Doc. Recusado', 'THC / 2000')),
+  thc_status VARCHAR(50) DEFAULT 'Pendente de Envio' CHECK (thc_status IN ('Pendente de Envio', 'Enviado')),
   criado_por UUID REFERENCES usuarios(id),
   atualizado_por UUID REFERENCES usuarios(id),
   criado_em TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
