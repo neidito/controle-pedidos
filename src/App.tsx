@@ -2000,9 +2000,14 @@ function App() {
     })
     const sortedYears = Object.keys(periodosByYear).map(Number).sort((a, b) => b - a)
 
-    const mesesNomes: Record<number, string> = {
-      1: 'Jan', 2: 'Fev', 3: 'Mar', 4: 'Abr', 5: 'Mai', 6: 'Jun',
-      7: 'Jul', 8: 'Ago', 9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'
+    const mesesAbrev: Record<string, string> = {
+      'janeiro': 'Jan', 'fevereiro': 'Fev', 'março': 'Mar', 'abril': 'Abr',
+      'maio': 'Mai', 'junho': 'Jun', 'julho': 'Jul', 'agosto': 'Ago',
+      'setembro': 'Set', 'outubro': 'Out', 'novembro': 'Nov', 'dezembro': 'Dez'
+    }
+    const getAbrev = (nome: string) => {
+      const palavra = nome.trim().split(/\s+/)[0].toLowerCase()
+      return mesesAbrev[palavra] || nome.substring(0, 3)
     }
 
     return (
@@ -2028,7 +2033,7 @@ function App() {
                   onClick={() => handlePedidosPeriodoSelect(p.id)}
                 >
                   <CardContent className="p-6 text-center">
-                    <div className="text-3xl font-bold text-orange-500 mb-1">{mesesNomes[p.mes] || p.mes}</div>
+                    <div className="text-3xl font-bold text-orange-500 mb-1">{getAbrev(p.nome)}</div>
                     <div className="text-sm text-slate-500 dark:text-slate-400">{p.nome}</div>
                   </CardContent>
                 </Card>
