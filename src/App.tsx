@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
 import { 
-  Package, Clock, Truck, AlertCircle, Plus, Trash2, Search, Calendar,
+  Package, Clock, Truck, AlertCircle, Plus, Trash2, Search, Calendar, FileX, Receipt,
   RefreshCw, Loader2, PackageOpen, LogOut, UserPlus, Shield, User,
   Eye, EyeOff, Lock, UserCog, CheckCircle2, XCircle, Sun, Moon, Database,
   Pencil, Copy, Upload, FileSpreadsheet, Download, Scale, Send,
@@ -82,7 +82,7 @@ interface Pedido {
   qtd: number
   total: number
   rastreio: string
-  status: 'Em Separação' | 'Em Trânsito' | 'Anvisa' | 'Problema Anvisa' | 'Atraso'
+  status: 'Em Separação' | 'Em Trânsito' | 'Anvisa' | 'Problema Anvisa' | 'Atraso' | 'Doc. Recusado' | 'THC / 2000'
 }
 
 interface Periodo {
@@ -504,7 +504,9 @@ const statusConfig: Record<string, { color: string; icon: any; cardClass: string
   'Em Trânsito': { color: 'status-transito border', icon: Truck, cardClass: 'card-transito', iconBgClass: 'icon-bg-transito', textClass: 'text-transito' },
   'Anvisa': { color: 'status-anvisa border', icon: Clock, cardClass: 'card-anvisa', iconBgClass: 'icon-bg-anvisa', textClass: 'text-anvisa' },
   'Problema Anvisa': { color: 'status-problema border', icon: AlertCircle, cardClass: 'card-problema', iconBgClass: 'icon-bg-problema', textClass: 'text-problema' },
-  'Atraso': { color: 'status-atraso border', icon: AlertCircle, cardClass: 'card-atraso', iconBgClass: 'icon-bg-atraso', textClass: 'text-atraso' }
+  'Atraso': { color: 'status-atraso border', icon: AlertCircle, cardClass: 'card-atraso', iconBgClass: 'icon-bg-atraso', textClass: 'text-atraso' },
+  'Doc. Recusado': { color: 'status-doc-recusado border', icon: FileX, cardClass: 'card-doc-recusado', iconBgClass: 'icon-bg-doc-recusado', textClass: 'text-doc-recusado' },
+  'THC / 2000': { color: 'status-thc border', icon: Receipt, cardClass: 'card-thc', iconBgClass: 'icon-bg-thc', textClass: 'text-thc' }
 }
 
 const statusJudicConfig: Record<string, { color: string; bgColor: string }> = {
@@ -1206,7 +1208,7 @@ function App() {
         }
         
         // Verifica status válido
-        const validStatus = ['Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso']
+        const validStatus = ['Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso', 'Doc. Recusado', 'THC / 2000']
         const status = row.status && validStatus.includes(row.status) ? row.status : 'Em Separação'
         
         validRows.push({
@@ -1610,7 +1612,9 @@ function App() {
     emTransito: pedidos.filter(p => p.status === 'Em Trânsito').length,
     anvisa: pedidos.filter(p => p.status === 'Anvisa').length,
     problemaAnvisa: pedidos.filter(p => p.status === 'Problema Anvisa').length,
-    atraso: pedidos.filter(p => p.status === 'Atraso').length
+    atraso: pedidos.filter(p => p.status === 'Atraso').length,
+    docRecusado: pedidos.filter(p => p.status === 'Doc. Recusado').length,
+    thc2000: pedidos.filter(p => p.status === 'THC / 2000').length
   }
 
   const currentPeriodo = periodos.find(p => p.id === periodoAtual)
@@ -1971,9 +1975,9 @@ function App() {
     return (
       <>
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-8">
           <Card><CardContent className="p-5"><div className="flex items-center justify-between"><div><p className="text-sm text-slate-500">Total</p><p className="text-3xl font-bold">{stats.total}</p></div><div className="p-3 bg-slate-100 rounded-xl"><Package className="w-6 h-6" /></div></div></CardContent></Card>
-          {Object.entries({ 'Em Separação': stats.emSeparacao, 'Em Trânsito': stats.emTransito, 'Anvisa': stats.anvisa, 'Problema Anvisa': stats.problemaAnvisa, 'Atraso': stats.atraso }).map(([status, count]) => (
+          {Object.entries({ 'Em Separação': stats.emSeparacao, 'Em Trânsito': stats.emTransito, 'Anvisa': stats.anvisa, 'Problema Anvisa': stats.problemaAnvisa, 'Atraso': stats.atraso, 'Doc. Recusado': stats.docRecusado, 'THC / 2000': stats.thc2000 }).map(([status, count]) => (
             <Card key={status} className={statusConfig[status].cardClass}><CardContent className="p-5"><div className="flex items-center justify-between"><div><p className={`text-sm font-medium ${statusConfig[status].textClass}`}>{status}</p><p className="text-3xl font-bold">{count}</p></div><div className={`p-3 ${statusConfig[status].iconBgClass} rounded-xl`}>{(() => { const Icon = statusConfig[status].icon; return <Icon className="w-6 h-6" /> })()}</div></div></CardContent></Card>
           ))}
         </div>
@@ -1997,7 +2001,7 @@ function App() {
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><Input placeholder="Buscar..." className="pl-9 w-[180px]" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-                <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">{['Todos', 'Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso'].map(s => <Button key={s} variant={filtroStatus === s ? 'default' : 'ghost'} size="sm" onClick={() => setFiltroStatus(s)} className="text-xs">{s}</Button>)}</div>
+                <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">{['Todos', 'Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso', 'Doc. Recusado', 'THC / 2000'].map(s => <Button key={s} variant={filtroStatus === s ? 'default' : 'ghost'} size="sm" onClick={() => setFiltroStatus(s)} className="text-xs">{s}</Button>)}</div>
               </div>
             </div>
           </CardHeader>

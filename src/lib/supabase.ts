@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   qtd INTEGER NOT NULL DEFAULT 1,
   total DECIMAL(10,2) DEFAULT 0,
   rastreio VARCHAR(100),
-  status VARCHAR(50) NOT NULL DEFAULT 'Em Separação' CHECK (status IN ('Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso')),
+  status VARCHAR(50) NOT NULL DEFAULT 'Em Separação' CHECK (status IN ('Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso', 'Doc. Recusado', 'THC / 2000')),
   criado_por UUID REFERENCES usuarios(id),
   atualizado_por UUID REFERENCES usuarios(id),
   criado_em TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
