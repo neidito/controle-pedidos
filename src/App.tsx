@@ -493,6 +493,11 @@ function BlurInput({
   )
 }
 
+const mesesAbrev: Record<number, string> = {
+  1: 'Jan', 2: 'Fev', 3: 'Mar', 4: 'Abr', 5: 'Mai', 6: 'Jun',
+  7: 'Jul', 8: 'Ago', 9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'
+}
+
 const getCurrentPeriodo = () => {
   const now = new Date()
   const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
@@ -1972,8 +1977,69 @@ function App() {
   }
 
   function renderPedidos() {
+    // Agrupar períodos por ano
+    const periodosPorAno = periodos.reduce<Record<number, typeof periodos>>((acc, p) => {
+      if (!acc[p.ano]) acc[p.ano] = []
+      acc[p.ano].push(p)
+      return acc
+    }, {})
+
+    if (!periodoAtual) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="p-4 bg-orange-100 rounded-2xl mb-4">
+            <Calendar className="w-10 h-10 text-orange-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Selecione o Período</h2>
+          <p className="text-slate-500 mb-8">Escolha o mês para visualizar os pedidos</p>
+          {Object.entries(periodosPorAno).sort(([a], [b]) => Number(b) - Number(a)).map(([ano, ps]) => (
+            <div key={ano} className="w-full max-w-3xl mb-6">
+              <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300 mb-3">{ano}</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                {ps.sort((a, b) => a.mes - b.mes).map(p => (
+                  <Card key={p.id} className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-orange-300" onClick={() => handlePeriodoChange(p.id)}>
+                    <CardContent className="p-5 text-center">
+                      <p className="text-2xl font-bold text-orange-500">{mesesAbrev[p.mes]}</p>
+                      <p className="text-sm text-slate-500 mt-1">{p.nome}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )
+    }
+
     return (
       <>
+        {/* Period Cards */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Calendar className="w-5 h-5 text-orange-500" />
+            <h3 className="text-sm font-medium text-slate-500">Selecione o Período</h3>
+          </div>
+          {Object.entries(periodosPorAno).sort(([a], [b]) => Number(b) - Number(a)).map(([ano, ps]) => (
+            <div key={ano} className="mb-4">
+              <p className="text-xs font-bold text-slate-400 mb-2">{ano}</p>
+              <div className="flex gap-3 flex-wrap">
+                {ps.sort((a, b) => a.mes - b.mes).map(p => (
+                  <Card
+                    key={p.id}
+                    className={`cursor-pointer hover:shadow-lg transition-all min-w-[120px] ${p.id === periodoAtual ? 'border-2 border-orange-400 shadow-md' : 'border hover:border-orange-300'}`}
+                    onClick={() => handlePeriodoChange(p.id)}
+                  >
+                    <CardContent className="p-4 text-center">
+                      <p className={`text-xl font-bold ${p.id === periodoAtual ? 'text-orange-500' : 'text-slate-400'}`}>{mesesAbrev[p.mes]}</p>
+                      <p className="text-xs text-slate-500 mt-1">{p.nome}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-8">
           <Card><CardContent className="p-5"><div className="flex items-center justify-between"><div><p className="text-sm text-slate-500">Total</p><p className="text-3xl font-bold">{stats.total}</p></div><div className="p-3 bg-slate-100 rounded-xl"><Package className="w-6 h-6" /></div></div></CardContent></Card>
