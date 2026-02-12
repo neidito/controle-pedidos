@@ -1,4 +1,4 @@
-import { useState, useEffect, Component, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, Component, useRef, useCallback } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -888,37 +888,28 @@ function App() {
     loadData()
   }, [currentUser])
 
-  // Realtime subscription - only when pedidos period is actively selected
+  // Realtime subscription consolidada para pedidos (evita updates simultâneos que causam removeChild)
   useEffect(() => {
-    if (!currentUser || !periodoAtual || !pedidosPeriodoSelecionado) return
+    if (!currentUser) return
 
     const supabase = getSupabase()
     const channel = supabase
-      .channel('changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, () => {
+      .channel('pedidos-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, async () => {
         setSyncing(true)
-        loadPedidos()
-        setTimeout(() => setSyncing(false), 500)
+        try {
+          if (periodoAtual && pedidosPeriodoSelecionado) {
+            await loadPedidos()
+          }
+          await loadThcPedidos()
+        } finally {
+          setSyncing(false)
+        }
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
   }, [currentUser, periodoAtual, pedidosPeriodoSelecionado])
-
-  // Realtime subscription for THC-2000 tab
-  useEffect(() => {
-    if (!currentUser) return
-
-    const supabase = getSupabase()
-    const thcChannel = supabase
-      .channel('thc-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, () => {
-        loadThcPedidos()
-      })
-      .subscribe()
-
-    return () => { supabase.removeChannel(thcChannel) }
-  }, [currentUser])
 
   const loadPedidos = async () => {
     if (!periodoAtual) return
@@ -2154,11 +2145,11 @@ function App() {
     toast.success('PDF gerado com sucesso!')
   }, [clientes, logoBase64])
 
-  const filteredPedidos = pedidos.filter(p => {
+  const filteredPedidos = useMemo(() => pedidos.filter(p => {
     const matchStatus = filtroStatus === 'Todos' || p.status === filtroStatus
     const matchSearch = !searchTerm || p.cliente.toLowerCase().includes(searchTerm.toLowerCase()) || p.nr_pedido.toLowerCase().includes(searchTerm.toLowerCase()) || p.produto.toLowerCase().includes(searchTerm.toLowerCase())
     return matchStatus && matchSearch
-  })
+  }), [pedidos, filtroStatus, searchTerm])
 
   const stats = {
     total: pedidos.length,
@@ -2662,9 +2653,8 @@ function App() {
               <Table>
                 <TableHeader><TableRow className="bg-slate-50 dark:bg-slate-800"><TableHead>Nº</TableHead><TableHead>Cliente</TableHead><TableHead>Médico</TableHead><TableHead>Vendedor</TableHead><TableHead>Data</TableHead><TableHead>Produto</TableHead><TableHead>QTD</TableHead><TableHead>Total</TableHead><TableHead>Rastreio</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {/* Linha para reservar novo pedido - só aparece se não está editando outro */}
-                  {!editingPedidoId && (
-                    <TableRow className="bg-green-50 dark:bg-green-900/20 border-b-2 border-green-200">
+                  {/* Linha para reservar novo pedido - esconde via CSS quando está editando (evita removeChild) */}
+                    <TableRow className="bg-green-50 dark:bg-green-900/20 border-b-2 border-green-200" style={{ display: editingPedidoId ? 'none' : undefined }}>
                       <TableCell>
                         <div className="flex gap-2">
                           <Input
@@ -2686,7 +2676,6 @@ function App() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  )}
                   {filteredPedidos.map(p => {
                     // Verifica se este pedido está sendo editado pelo usuário atual
                     const isBeingEditedByMe = editingPedidoId === p.id
