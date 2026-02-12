@@ -21,7 +21,7 @@ import { getSupabase } from '@/lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-// Error Boundary
+// Error Boundary - com tratamento especial para erros de DOM (removeChild/insertBefore)
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   constructor(props: { children: ReactNode }) {
     super(props)
@@ -29,10 +29,28 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   }
 
   static getDerivedStateFromError(error: Error) {
+    // Erros de DOM (removeChild/insertBefore) geralmente são causados por extensões do navegador
+    // que modificam o DOM fora do controle do React. Tentamos recuperar automaticamente.
+    const isDomError = error.message?.includes('removeChild') ||
+      error.message?.includes('insertBefore') ||
+      error.message?.includes('appendChild')
+    if (isDomError) {
+      console.warn('Erro de DOM detectado (provavelmente extensão do navegador). Recuperando...', error.message)
+      return { hasError: false, error: null }
+    }
     return { hasError: true, error }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    const isDomError = error.message?.includes('removeChild') ||
+      error.message?.includes('insertBefore') ||
+      error.message?.includes('appendChild')
+    if (isDomError) {
+      // Tenta recarregar silenciosamente em vez de crashar
+      console.warn('Erro de DOM capturado, recarregando...', error.message)
+      window.location.reload()
+      return
+    }
     console.error('App Error:', error, errorInfo)
   }
 
@@ -47,7 +65,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
             <pre className="bg-slate-100 p-4 rounded text-left text-xs overflow-auto max-h-32 mb-4">
               {this.state.error?.message || 'Erro desconhecido'}
             </pre>
-            <button 
+            <button
               onClick={() => { localStorage.clear(); window.location.reload() }}
               className="bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600"
             >
@@ -668,7 +686,7 @@ function LoginScreen({ onLogin }: { onLogin: (u: Usuario) => void }) {
               {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">{error}</div>}
 
               <Button type="submit" disabled={loading} className="w-full bg-orange-500 hover:bg-orange-600">
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Entrar'}
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Entrar</span>}
               </Button>
             </form>
           </CardContent>
@@ -2200,7 +2218,7 @@ function App() {
             </Button>
 
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${syncing ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-              {syncing ? <><RefreshCw className="w-3 h-3 animate-spin" /> Sync</> : <><Database className="w-3 h-3" /> Online</>}
+              {syncing ? <><RefreshCw className="w-3 h-3 animate-spin" /> <span>Sync</span></> : <><Database className="w-3 h-3" /> <span>Online</span></>}
             </div>
 
             {activeTab !== 'pedidos' && (
@@ -2670,7 +2688,7 @@ function App() {
                         <div className="flex items-center gap-2">
                           <span>← Digite o nº do pedido e clique em</span>
                           <Button size="sm" onClick={reservePedido} disabled={reservingPedido || !newRow.nr_pedido.trim()} className="bg-green-500 hover:bg-green-600 h-7 px-3">
-                            {reservingPedido ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Reservar</>}
+                            {reservingPedido ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" /><span>Reservar</span></>}
                           </Button>
                           <span>para iniciar</span>
                         </div>
@@ -2700,7 +2718,7 @@ function App() {
                               className={`h-8 ${isBeingEditedByMe ? 'border-orange-300 bg-white' : 'border-transparent hover:border-slate-300'}`} 
                               placeholder="Cliente *" 
                             />
-                          ) : p.cliente || <span className="text-slate-400">-</span>}
+                          ) : (p.cliente ? <span>{p.cliente}</span> : <span className="text-slate-400">-</span>)}
                         </TableCell>
                         <TableCell className="align-top">
                           {canEditAllFields ? (
@@ -2710,7 +2728,7 @@ function App() {
                               className={`h-8 ${isBeingEditedByMe ? 'border-orange-300 bg-white' : 'border-transparent hover:border-slate-300'}`} 
                               placeholder="Médico" 
                             />
-                          ) : p.medico || <span className="text-slate-400">-</span>}
+                          ) : (p.medico ? <span>{p.medico}</span> : <span className="text-slate-400">-</span>)}
                         </TableCell>
                         <TableCell className="align-top">
                           {canEditAllFields ? (
@@ -2720,7 +2738,7 @@ function App() {
                               vendedores={vendedores}
                               className={`h-8 w-[180px] ${isBeingEditedByMe ? 'border-orange-300 bg-white' : 'border-transparent hover:border-slate-300'}`}
                             />
-                          ) : p.vendedor || <span className="text-slate-400">-</span>}
+                          ) : (p.vendedor ? <span>{p.vendedor}</span> : <span className="text-slate-400">-</span>)}
                         </TableCell>
                         <TableCell className="align-top">
                           {canEditAllFields ? (
@@ -2852,7 +2870,7 @@ function App() {
             </Button>
             <p className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${syncing ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></span>
-              {syncing ? 'Sincronizando...' : 'Conectado'}
+              <span>{syncing ? 'Sincronizando...' : 'Conectado'}</span>
             </p>
           </div>
         </div>
@@ -2944,7 +2962,7 @@ function App() {
                           <tr key={i} className="border-t">
                             <td className="px-3 py-2 font-mono">{row.nr_pedido}</td>
                             <td className="px-3 py-2">{row.cliente}</td>
-                            <td className="px-3 py-2">{row.produto.split('\n')[0]}{row.produto.includes('\n') && '...'}</td>
+                            <td className="px-3 py-2"><span>{row.produto.split('\n')[0]}{row.produto.includes('\n') ? '...' : ''}</span></td>
                             <td className="px-3 py-2">R$ {formatCurrency(row.total)}</td>
                             <td className="px-3 py-2">{row.status}</td>
                           </tr>
@@ -3288,7 +3306,7 @@ function App() {
                           >
                             {e.rastreio}
                           </button>
-                        ) : '-'}
+                        ) : <span>-</span>}
                       </TableCell>
                       <TableCell>
                         <Select value={e.status} onValueChange={(v) => updateControleEnvio(e.id, 'status', v)}>
@@ -3720,7 +3738,7 @@ function App() {
                       </TableCell>
                       <TableCell>
                         <span className={`px-2 py-1 rounded-full text-xs flex items-center gap-1 w-fit ${v.ativo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {v.ativo ? <><CheckCircle2 className="w-3 h-3" />Ativo</> : <><XCircle className="w-3 h-3" />Inativo</>}
+                          {v.ativo ? <><CheckCircle2 className="w-3 h-3" /><span>Ativo</span></> : <><XCircle className="w-3 h-3" /><span>Inativo</span></>}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -3739,7 +3757,7 @@ function App() {
                             onClick={() => toggleVendedor(v.id, v.ativo)}
                             className={v.ativo ? 'text-amber-600 hover:bg-amber-50' : 'text-green-600 hover:bg-green-50'}
                           >
-                            {v.ativo ? 'Desativar' : 'Ativar'}
+                            <span>{v.ativo ? 'Desativar' : 'Ativar'}</span>
                           </Button>
                           <Button
                             variant="ghost"
@@ -3817,7 +3835,7 @@ function App() {
                     <TableCell><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center ${u.tipo === 'admin' ? 'bg-orange-100' : 'bg-slate-100'}`}>{u.tipo === 'admin' ? <Shield className="w-4 h-4 text-orange-600" /> : <User className="w-4 h-4" />}</div><span className="font-medium">{u.nome}</span>{u.id === currentUser?.id && <span className="text-xs text-orange-600">(você)</span>}</div></TableCell>
                     <TableCell className="text-slate-500">{u.email}</TableCell>
                     <TableCell><span className={`px-2 py-1 rounded-full text-xs ${u.tipo === 'admin' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>{u.tipo === 'admin' ? 'Admin' : 'Colaborador'}</span></TableCell>
-                    <TableCell><span className={`px-2 py-1 rounded-full text-xs flex items-center gap-1 w-fit ${u.ativo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{u.ativo ? <><CheckCircle2 className="w-3 h-3" />Ativo</> : <><XCircle className="w-3 h-3" />Inativo</>}</span></TableCell>
+                    <TableCell><span className={`px-2 py-1 rounded-full text-xs flex items-center gap-1 w-fit ${u.ativo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{u.ativo ? <><CheckCircle2 className="w-3 h-3" /><span>Ativo</span></> : <><XCircle className="w-3 h-3" /><span>Inativo</span></>}</span></TableCell>
                     <TableCell>
                       <div className="flex gap-1 justify-end">
                         <Button variant="ghost" size="sm" onClick={() => openEditUser(u)} className="text-blue-500 hover:bg-blue-50">
