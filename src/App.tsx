@@ -15,7 +15,7 @@ import {
   Eye, EyeOff, Lock, UserCog, CheckCircle2, XCircle, Sun, Moon, Database,
   Pencil, Copy, Upload, FileSpreadsheet, Download, Scale, Send,
   StickyNote, ListTodo, Flag, X, Check, LayoutDashboard, Palette, ArrowLeft,
-  FileText, Building2, Users
+  FileText, Building2, Users, Wifi, WifiOff
 } from 'lucide-react'
 import { getSupabase } from '@/lib/supabase'
 import jsPDF from 'jspdf'
@@ -87,6 +87,7 @@ interface Usuario {
   senha: string
   tipo: 'admin' | 'colaborador'
   ativo: boolean
+  last_seen_at?: string
   criado_em: string
   criado_por?: string
 }
@@ -638,9 +639,11 @@ function LoginScreen({ onLogin }: { onLogin: (u: Usuario) => void }) {
 
       const usuario: Usuario = {
         id: data.id, nome: data.nome, email: data.email, senha: data.senha,
-        tipo: data.tipo, ativo: data.ativo, criado_em: data.criado_em
+        tipo: data.tipo, ativo: data.ativo, last_seen_at: data.last_seen_at, criado_em: data.criado_em
       }
       localStorage.setItem(SESSION_KEY, JSON.stringify(usuario))
+      // Atualizar last_seen_at no login
+      await supabase.from('usuarios').update({ last_seen_at: new Date().toISOString() }).eq('id', usuario.id)
       onLogin(usuario)
       toast.success(`Bem-vindo, ${usuario.nome}!`)
     } catch (err) {
@@ -809,7 +812,10 @@ function App() {
   const [clienteSearchTerm, setClienteSearchTerm] = useState('')
   const [logoBase64, setLogoBase64] = useState<string | null>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
-  
+
+  // Estado para contagem de pedidos por usuário
+  const [userOrderCounts, setUserOrderCounts] = useState<Record<string, number>>({})
+
   // Copiar texto para clipboard
   const copyToClipboard = (text: string) => {
     if (!text || text === 'Código') return
@@ -928,6 +934,56 @@ function App() {
 
     return () => { supabase.removeChannel(channel) }
   }, [currentUser, periodoAtual, pedidosPeriodoSelecionado])
+
+  // Heartbeat: atualiza last_seen_at do usuário a cada 60 segundos
+  useEffect(() => {
+    if (!currentUser) return
+
+    const updateLastSeen = async () => {
+      const supabase = getSupabase()
+      await supabase.from('usuarios').update({ last_seen_at: new Date().toISOString() }).eq('id', currentUser.id)
+    }
+
+    // Atualizar imediatamente ao logar
+    updateLastSeen()
+
+    // Atualizar a cada 60 segundos
+    const heartbeatInterval = setInterval(updateLastSeen, 60000)
+
+    return () => clearInterval(heartbeatInterval)
+  }, [currentUser])
+
+  // Carregar contagem de pedidos por usuário e refresh periódico dos dados de usuários
+  useEffect(() => {
+    if (!currentUser || currentUser.tipo !== 'admin') return
+
+    const loadUserPerformanceData = async () => {
+      const supabase = getSupabase()
+
+      // Carregar contagem de pedidos por criado_por
+      const { data: allPedidos } = await supabase.from('pedidos').select('criado_por')
+      if (allPedidos) {
+        const counts: Record<string, number> = {}
+        allPedidos.forEach((p: { criado_por: string | null }) => {
+          if (p.criado_por) {
+            counts[p.criado_por] = (counts[p.criado_por] || 0) + 1
+          }
+        })
+        setUserOrderCounts(counts)
+      }
+
+      // Refresh lista de usuários para atualizar last_seen_at
+      const { data: usersData } = await supabase.from('usuarios').select('*').order('nome')
+      if (usersData) setUsuarios(usersData)
+    }
+
+    loadUserPerformanceData()
+
+    // Atualizar dados a cada 30 segundos
+    const refreshInterval = setInterval(loadUserPerformanceData, 30000)
+
+    return () => clearInterval(refreshInterval)
+  }, [currentUser])
 
   const loadPedidos = async () => {
     if (!periodoAtual) return
@@ -1106,7 +1162,12 @@ function App() {
     toast.success('Excluído')
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Limpar last_seen_at ao sair para mostrar como offline imediatamente
+    if (currentUser) {
+      const supabase = getSupabase()
+      await supabase.from('usuarios').update({ last_seen_at: null }).eq('id', currentUser.id)
+    }
     setShowLogoutConfirm(false)
     localStorage.removeItem(SESSION_KEY)
     setCurrentUser(null)
@@ -3806,14 +3867,60 @@ function App() {
   }
 
   function renderUsuarios() {
+    // Verifica se o usuário está online (last_seen_at nos últimos 2 minutos)
+    const isUserOnline = (user: Usuario): boolean => {
+      if (!user.last_seen_at) return false
+      const lastSeen = new Date(user.last_seen_at).getTime()
+      const now = Date.now()
+      return (now - lastSeen) < 2 * 60 * 1000 // 2 minutos
+    }
+
+    // Formata a data de último acesso
+    const formatLastSeen = (user: Usuario): string => {
+      if (!user.last_seen_at) return 'Nunca acessou'
+      const lastSeen = new Date(user.last_seen_at)
+      const now = new Date()
+      const diffMs = now.getTime() - lastSeen.getTime()
+      const diffMin = Math.floor(diffMs / 60000)
+      const diffHours = Math.floor(diffMs / 3600000)
+      const diffDays = Math.floor(diffMs / 86400000)
+
+      if (diffMin < 2) return 'Agora'
+      if (diffMin < 60) return `${diffMin} min atrás`
+      if (diffHours < 24) return `${diffHours}h atrás`
+      if (diffDays === 1) return 'Ontem'
+      if (diffDays < 7) return `${diffDays} dias atrás`
+      return lastSeen.toLocaleDateString('pt-BR', { timeZone: SAO_PAULO_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    }
+
+    // Estatísticas gerais
+    const totalOrders = Object.values(userOrderCounts).reduce((sum, c) => sum + c, 0)
+    const onlineCount = usuarios.filter(u => u.ativo && isUserOnline(u)).length
+    const activeUsers = usuarios.filter(u => u.ativo).length
+
+    // Ordenar: online primeiro, depois por quantidade de pedidos
+    const sortedUsuarios = [...usuarios].sort((a, b) => {
+      const aOnline = isUserOnline(a) ? 1 : 0
+      const bOnline = isUserOnline(b) ? 1 : 0
+      if (bOnline !== aOnline) return bOnline - aOnline
+      return (userOrderCounts[b.id] || 0) - (userOrderCounts[a.id] || 0)
+    })
+
     return (
       <div className="space-y-6">
+        {/* Header */}
         <div className="flex justify-between items-center">
-          <div><h2 className="text-xl font-bold">Usuários</h2><p className="text-sm text-slate-500">Gerencie os usuários do sistema</p></div>
+          <div>
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <Users className="w-6 h-6 text-orange-600" />
+              Usuários & Desempenho
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Gerencie usuários e acompanhe o desempenho dos colaboradores</p>
+          </div>
           <Dialog open={showAddUser} onOpenChange={setShowAddUser}>
             <DialogTrigger asChild><Button className="bg-orange-500 hover:bg-orange-600"><UserPlus className="w-4 h-4 mr-2" />Novo</Button></DialogTrigger>
             <DialogContent>
-              <DialogHeader><DialogTitle>Novo Usuário</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>Novo Usuário</DialogTitle><DialogDescription>Preencha os dados para criar um novo usuário</DialogDescription></DialogHeader>
               <div className="space-y-4 pt-4">
                 <Input placeholder="Nome" value={newUser.nome} onChange={(e) => setNewUser({...newUser, nome: e.target.value})} />
                 <Input placeholder="Email" type="email" value={newUser.email} onChange={(e) => setNewUser({...newUser, email: e.target.value})} />
@@ -3825,27 +3932,135 @@ function App() {
           </Dialog>
         </div>
 
+        {/* Cards de resumo */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
+                <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Usuários Ativos</p>
+                <p className="text-2xl font-bold">{activeUsers}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-xl">
+                <Wifi className="w-6 h-6 text-green-600 dark:text-green-400" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Online Agora</p>
+                <p className="text-2xl font-bold text-green-600">{onlineCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="p-3 bg-orange-100 dark:bg-orange-900/30 rounded-xl">
+                <Package className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Total de Pedidos</p>
+                <p className="text-2xl font-bold">{totalOrders}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Tabela de usuários com desempenho */}
         <Card>
           <CardContent className="p-0">
             <Table>
-              <TableHeader><TableRow><TableHead>Usuário</TableHead><TableHead>Email</TableHead><TableHead>Tipo</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Usuário</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead className="text-center">Pedidos Inseridos</TableHead>
+                  <TableHead className="text-center">Status Online</TableHead>
+                  <TableHead>Último Acesso</TableHead>
+                  <TableHead>Conta</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {usuarios.map(u => (
-                  <TableRow key={u.id}>
-                    <TableCell><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center ${u.tipo === 'admin' ? 'bg-orange-100' : 'bg-slate-100'}`}>{u.tipo === 'admin' ? <Shield className="w-4 h-4 text-orange-600" /> : <User className="w-4 h-4" />}</div><span className="font-medium">{u.nome}</span>{u.id === currentUser?.id && <span className="text-xs text-orange-600">(você)</span>}</div></TableCell>
-                    <TableCell className="text-slate-500">{u.email}</TableCell>
-                    <TableCell><span className={`px-2 py-1 rounded-full text-xs ${u.tipo === 'admin' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>{u.tipo === 'admin' ? 'Admin' : 'Colaborador'}</span></TableCell>
-                    <TableCell><span className={`px-2 py-1 rounded-full text-xs flex items-center gap-1 w-fit ${u.ativo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{u.ativo ? <><CheckCircle2 className="w-3 h-3" /><span>Ativo</span></> : <><XCircle className="w-3 h-3" /><span>Inativo</span></>}</span></TableCell>
-                    <TableCell>
-                      <div className="flex gap-1 justify-end">
-                        <Button variant="ghost" size="sm" onClick={() => openEditUser(u)} className="text-blue-500 hover:bg-blue-50">
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        {u.id !== currentUser?.id && <Button variant="ghost" size="sm" onClick={() => toggleUser(u.id, u.ativo)} className={u.ativo ? 'text-amber-600' : 'text-green-600'}>{u.ativo ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}</Button>}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {sortedUsuarios.map(u => {
+                  const online = isUserOnline(u)
+                  const orderCount = userOrderCounts[u.id] || 0
+                  const maxOrders = Math.max(...Object.values(userOrderCounts), 1)
+                  const barWidth = Math.round((orderCount / maxOrders) * 100)
+
+                  return (
+                    <TableRow key={u.id} className={!u.ativo ? 'opacity-50' : ''}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <div className={`w-9 h-9 rounded-full flex items-center justify-center ${u.tipo === 'admin' ? 'bg-orange-100 dark:bg-orange-900/30' : 'bg-slate-100 dark:bg-slate-700'}`}>
+                              {u.tipo === 'admin' ? <Shield className="w-4 h-4 text-orange-600" /> : <User className="w-4 h-4 text-slate-600 dark:text-slate-300" />}
+                            </div>
+                            {u.ativo && (
+                              <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-800 ${online ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
+                            )}
+                          </div>
+                          <div>
+                            <span className="font-medium">{u.nome}</span>
+                            {u.id === currentUser?.id && <span className="text-xs text-orange-600 ml-1">(você)</span>}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-slate-500 dark:text-slate-400">{u.email}</TableCell>
+                      <TableCell>
+                        <span className={`px-2 py-1 rounded-full text-xs ${u.tipo === 'admin' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}>
+                          {u.tipo === 'admin' ? 'Admin' : 'Colaborador'}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2 min-w-[60px]">
+                            <div
+                              className={`h-2 rounded-full transition-all ${orderCount > 0 ? 'bg-orange-500' : 'bg-transparent'}`}
+                              style={{ width: `${barWidth}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-semibold min-w-[32px] text-right">{orderCount}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {u.ativo ? (
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${online ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'}`}>
+                            {online ? <><Wifi className="w-3 h-3" /> Online</> : <><WifiOff className="w-3 h-3" /> Offline</>}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-sm ${isUserOnline(u) ? 'text-green-600 dark:text-green-400 font-medium' : 'text-slate-500 dark:text-slate-400'}`}>
+                          {formatLastSeen(u)}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`px-2 py-1 rounded-full text-xs flex items-center gap-1 w-fit ${u.ativo ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                          {u.ativo ? <><CheckCircle2 className="w-3 h-3" /><span>Ativo</span></> : <><XCircle className="w-3 h-3" /><span>Inativo</span></>}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1 justify-end">
+                          <Button variant="ghost" size="sm" onClick={() => openEditUser(u)} className="text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          {u.id !== currentUser?.id && (
+                            <Button variant="ghost" size="sm" onClick={() => toggleUser(u.id, u.ativo)} className={u.ativo ? 'text-amber-600' : 'text-green-600'}>
+                              {u.ativo ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </CardContent>
@@ -3854,15 +4069,15 @@ function App() {
         {/* Modal de Edição de Usuário */}
         <Dialog open={showEditUser} onOpenChange={setShowEditUser}>
           <DialogContent>
-            <DialogHeader><DialogTitle>Editar Usuário</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Editar Usuário</DialogTitle><DialogDescription>Atualize os dados do usuário</DialogDescription></DialogHeader>
             {editingUser && (
               <div className="space-y-4 pt-4">
                 <div>
-                  <label className="text-sm font-medium text-slate-700 mb-1 block">Nome</label>
-                  <p className="text-sm text-slate-500 bg-slate-50 px-3 py-2 rounded-md">{editingUser.nome}</p>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 block">Nome</label>
+                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-slate-800 px-3 py-2 rounded-md">{editingUser.nome}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-slate-700 mb-1 block">Email</label>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 block">Email</label>
                   <Input
                     type="email"
                     placeholder="Email"
@@ -3871,7 +4086,7 @@ function App() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-slate-700 mb-1 block">Nova Senha</label>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 block">Nova Senha</label>
                   <Input
                     type="password"
                     placeholder="Deixe em branco para manter a senha atual"

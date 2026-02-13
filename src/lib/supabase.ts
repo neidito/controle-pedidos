@@ -37,9 +37,13 @@ CREATE TABLE IF NOT EXISTS usuarios (
   senha VARCHAR(255) NOT NULL,
   tipo VARCHAR(20) NOT NULL DEFAULT 'colaborador' CHECK (tipo IN ('admin', 'colaborador')),
   ativo BOOLEAN DEFAULT true,
+  last_seen_at TIMESTAMP WITH TIME ZONE,
   criado_em TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   criado_por UUID REFERENCES usuarios(id)
 );
+
+-- Add last_seen_at column if table already exists
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP WITH TIME ZONE;
 
 -- Create vendedores table
 CREATE TABLE IF NOT EXISTS vendedores (
