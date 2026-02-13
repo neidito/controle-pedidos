@@ -815,6 +815,7 @@ function App() {
 
   // Estado para contagem de pedidos por usuário
   const [userOrderCounts, setUserOrderCounts] = useState<Record<string, number>>({})
+  const [totalAllOrders, setTotalAllOrders] = useState(0)
 
   // Copiar texto para clipboard
   const copyToClipboard = (text: string) => {
@@ -963,6 +964,7 @@ function App() {
       // Carregar contagem de pedidos por criado_por
       const { data: allPedidos } = await supabase.from('pedidos').select('criado_por')
       if (allPedidos) {
+        setTotalAllOrders(allPedidos.length)
         const counts: Record<string, number> = {}
         allPedidos.forEach((p: { criado_por: string | null }) => {
           if (p.criado_por) {
@@ -3894,7 +3896,8 @@ function App() {
     }
 
     // Estatísticas gerais
-    const totalOrders = Object.values(userOrderCounts).reduce((sum, c) => sum + c, 0)
+    const totalAtribuidos = Object.values(userOrderCounts).reduce((sum, c) => sum + c, 0)
+    const naoAtribuidos = totalAllOrders - totalAtribuidos
     const onlineCount = usuarios.filter(u => u.ativo && isUserOnline(u)).length
     const activeUsers = usuarios.filter(u => u.ativo).length
 
@@ -3933,7 +3936,7 @@ function App() {
         </div>
 
         {/* Cards de resumo */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-4 flex items-center gap-4">
               <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
@@ -3963,7 +3966,19 @@ function App() {
               </div>
               <div>
                 <p className="text-sm text-slate-500 dark:text-slate-400">Total de Pedidos</p>
-                <p className="text-2xl font-bold">{totalOrders}</p>
+                <p className="text-2xl font-bold">{totalAllOrders}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-xl">
+                <AlertCircle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Sem Identificação</p>
+                <p className="text-2xl font-bold text-amber-600">{naoAtribuidos}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">pedidos sem autor registrado</p>
               </div>
             </CardContent>
           </Card>
