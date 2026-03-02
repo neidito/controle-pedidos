@@ -15,7 +15,7 @@ import {
   Eye, EyeOff, Lock, UserCog, CheckCircle2, XCircle, Sun, Moon, Database,
   Pencil, Copy, Upload, FileSpreadsheet, Download, Scale, Send,
   StickyNote, ListTodo, Flag, X, Check, LayoutDashboard, Palette, ArrowLeft,
-  FileText, Building2, Users
+  FileText, Building2, Users, BarChart3, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { getSupabase } from '@/lib/supabase'
 import jsPDF from 'jspdf'
@@ -105,6 +105,7 @@ interface Pedido {
   rastreio: string
   status: 'Em Separação' | 'Em Trânsito' | 'Anvisa' | 'Problema Anvisa' | 'Atraso' | 'Doc. Recusado' | 'THC / 2000'
   thc_status?: 'Pendente de Envio' | 'Enviado'
+  criado_por?: string
 }
 
 interface Periodo {
@@ -712,6 +713,8 @@ function App() {
   const [periodoAtual, setPeriodoAtual] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('Todos')
   const [searchTerm, setSearchTerm] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const ITEMS_PER_PAGE = 50
   const [syncing, setSyncing] = useState(false)
   const [showNovoPeriodo, setShowNovoPeriodo] = useState(false)
   const [novoPeriodoNome, setNovoPeriodoNome] = useState('')
@@ -781,6 +784,20 @@ function App() {
   // ID do pedido que está sendo editado (reservado) pelo usuário atual
   const [editingPedidoId, setEditingPedidoId] = useState<string | null>(null)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+
+  // Estados para exclusão de usuário
+  const [showDeleteUserConfirm, setShowDeleteUserConfirm] = useState(false)
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+
+  // Estados para Dashboard de Performance
+  const [dashboardFilter, setDashboardFilter] = useState<'day' | 'month'>('month')
+  const [dashboardDate, setDashboardDate] = useState(getTodayInSaoPaulo())
+  const [dashboardMonth, setDashboardMonth] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [dashboardData, setDashboardData] = useState<{usuario_id: string; usuario_nome: string; count: number}[]>([])
+  const [dashboardLoading, setDashboardLoading] = useState(false)
 
   // Estados para Gerador de Orçamento
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -914,6 +931,10 @@ function App() {
     const channel = supabase
       .channel('pedidos-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, async () => {
+        // Não recarrega enquanto o usuário estiver editando um pedido reservado
+        // O sync será feito ao clicar em "Salvar"
+        if (editingPedidoId) return
+
         setSyncing(true)
         try {
           if (periodoAtual && pedidosPeriodoSelecionado) {
@@ -927,7 +948,7 @@ function App() {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [currentUser, periodoAtual, pedidosPeriodoSelecionado])
+  }, [currentUser, periodoAtual, pedidosPeriodoSelecionado, editingPedidoId])
 
   const loadPedidos = async () => {
     if (!periodoAtual) return
@@ -1072,6 +1093,9 @@ function App() {
     }
     setEditingPedidoId(null)
     toast.success('Pedido salvo!')
+    // Sincroniza dados acumulados durante a edição
+    loadPedidos()
+    loadThcPedidos()
   }
   
   // Iniciar edição de um pedido existente
@@ -1131,6 +1155,73 @@ function App() {
     const { data } = await supabase.from('usuarios').select('*').order('nome')
     if (data) setUsuarios(data)
     toast.success('Atualizado')
+  }
+
+  const deleteUser = async (id: string) => {
+    if (id === currentUser?.id) { toast.error('Não pode excluir você mesmo'); return }
+    const user = usuarios.find(u => u.id === id)
+    if (user?.ativo) { toast.error('Desative o usuário antes de excluí-lo'); return }
+    const supabase = getSupabase()
+    const { error } = await supabase.from('usuarios').delete().eq('id', id)
+    if (error) {
+      toast.error('Erro ao excluir usuário. Pode estar vinculado a pedidos ou outros registros.')
+      console.error(error)
+      return
+    }
+    const { data } = await supabase.from('usuarios').select('*').order('nome')
+    if (data) setUsuarios(data)
+    setShowDeleteUserConfirm(false)
+    setDeletingUserId(null)
+    toast.success('Usuário excluído!')
+  }
+
+  // Dashboard de Performance dos Colaboradores
+  const loadDashboardData = async () => {
+    setDashboardLoading(true)
+    try {
+      const supabase = getSupabase()
+
+      let startDate: string
+      let endDate: string
+
+      if (dashboardFilter === 'day') {
+        startDate = dashboardDate
+        endDate = dashboardDate
+      } else {
+        const [year, month] = dashboardMonth.split('-').map(Number)
+        startDate = `${year}-${String(month).padStart(2, '0')}-01`
+        const lastDay = new Date(year, month, 0).getDate()
+        endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+      }
+
+      const { data: pedidosData } = await supabase
+        .from('pedidos')
+        .select('criado_por')
+        .gte('data', startDate)
+        .lte('data', endDate)
+        .not('criado_por', 'is', null)
+
+      if (pedidosData) {
+        const countMap = new Map<string, number>()
+        pedidosData.forEach((p: { criado_por: string | null }) => {
+          if (p.criado_por) {
+            countMap.set(p.criado_por, (countMap.get(p.criado_por) || 0) + 1)
+          }
+        })
+
+        const result = Array.from(countMap.entries()).map(([userId, count]) => {
+          const user = usuarios.find(u => u.id === userId)
+          return { usuario_id: userId, usuario_nome: user?.nome || 'Desconhecido', count }
+        }).sort((a, b) => b.count - a.count)
+
+        setDashboardData(result)
+      }
+    } catch (err) {
+      console.error('Erro ao carregar dashboard:', err)
+      toast.error('Erro ao carregar dashboard')
+    } finally {
+      setDashboardLoading(false)
+    }
   }
 
   // Funções de vendedores
@@ -2169,6 +2260,34 @@ function App() {
     return matchStatus && matchSearch
   }), [pedidos, filtroStatus, searchTerm])
 
+  // Paginação client-side
+  const totalPages = Math.ceil(filteredPedidos.length / ITEMS_PER_PAGE) || 1
+  const paginatedPedidos = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE
+    return filteredPedidos.slice(start, start + ITEMS_PER_PAGE)
+  }, [filteredPedidos, currentPage])
+
+  // Reseta página ao mudar filtro, busca ou período
+  useEffect(() => { setCurrentPage(1) }, [filtroStatus, searchTerm, periodoAtual])
+
+  // Garante que o pedido em edição esteja na página visível
+  useEffect(() => {
+    if (editingPedidoId) {
+      const idx = filteredPedidos.findIndex(p => p.id === editingPedidoId)
+      if (idx >= 0) {
+        const targetPage = Math.floor(idx / ITEMS_PER_PAGE) + 1
+        if (targetPage !== currentPage) setCurrentPage(targetPage)
+      }
+    }
+  }, [editingPedidoId, filteredPedidos])
+
+  // Ajusta página se ficou fora do range (ex: após exclusão)
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages)
+    }
+  }, [filteredPedidos.length])
+
   const stats = {
     total: pedidos.length,
     emSeparacao: pedidos.filter(p => p.status === 'Em Separação').length,
@@ -2694,7 +2813,7 @@ function App() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  {filteredPedidos.map(p => {
+                  {paginatedPedidos.map(p => {
                     // Verifica se este pedido está sendo editado pelo usuário atual
                     const isBeingEditedByMe = editingPedidoId === p.id
                     // Verifica se é um pedido vazio (reservado mas não preenchido)
@@ -2860,10 +2979,39 @@ function App() {
               </Table>
             </div>
             {filteredPedidos.length === 0 && !editingPedidoId && <div className="py-16 text-center"><Package className="w-12 h-12 text-slate-300 mx-auto mb-4" /><p className="text-slate-500">Nenhum pedido</p></div>}
+
+            {/* Paginação */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 py-4 border-t">
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="h-8 px-2 text-xs">
+                  Primeira
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-8 px-2">
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                {(() => {
+                  const pages: number[] = []
+                  const start = Math.max(1, currentPage - 2)
+                  const end = Math.min(totalPages, currentPage + 2)
+                  for (let i = start; i <= end; i++) pages.push(i)
+                  return pages.map(page => (
+                    <Button key={page} variant={page === currentPage ? 'default' : 'outline'} size="sm" onClick={() => setCurrentPage(page)} className="w-8 h-8 p-0 text-xs">
+                      {page}
+                    </Button>
+                  ))
+                })()}
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-8 px-2">
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="h-8 px-2 text-xs">
+                  Última
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
         <div className="mt-4 flex justify-between text-sm text-slate-500">
-          <p>{filteredPedidos.length} de {pedidos.length} pedidos</p>
+          <p>Mostrando {filteredPedidos.length > 0 ? ((currentPage - 1) * ITEMS_PER_PAGE) + 1 : 0}-{Math.min(currentPage * ITEMS_PER_PAGE, filteredPedidos.length)} de {filteredPedidos.length} pedidos (total: {pedidos.length})</p>
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={loadPedidos} className="h-7 px-2 text-slate-500 hover:text-slate-700">
               <RefreshCw className="w-4 h-4 mr-1" /> Atualizar
@@ -3825,6 +3973,68 @@ function App() {
           </Dialog>
         </div>
 
+        {/* Dashboard de Performance dos Colaboradores */}
+        <Card>
+          <CardHeader className="border-b pb-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-orange-600" />
+                <CardTitle className="text-lg">Desempenho dos Colaboradores</CardTitle>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+                  <Button variant={dashboardFilter === 'month' ? 'default' : 'ghost'} size="sm" onClick={() => setDashboardFilter('month')} className="text-xs">Por Mês</Button>
+                  <Button variant={dashboardFilter === 'day' ? 'default' : 'ghost'} size="sm" onClick={() => setDashboardFilter('day')} className="text-xs">Por Dia</Button>
+                </div>
+                {dashboardFilter === 'day' ? (
+                  <Input type="date" value={dashboardDate} onChange={(e) => setDashboardDate(e.target.value)} className="w-[180px] h-8" />
+                ) : (
+                  <Input type="month" value={dashboardMonth} onChange={(e) => setDashboardMonth(e.target.value)} className="w-[180px] h-8" />
+                )}
+                <Button onClick={loadDashboardData} size="sm" className="bg-orange-500 hover:bg-orange-600">
+                  {dashboardLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Search className="w-4 h-4 mr-1" />}
+                  Consultar
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6">
+            {dashboardData.length === 0 ? (
+              <div className="py-8 text-center">
+                <BarChart3 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-500 text-sm">Selecione um período e clique em Consultar</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center mb-4">
+                  <p className="text-sm text-slate-500">
+                    {dashboardFilter === 'day' ? `Dia: ${formatDateBR(dashboardDate)}` : `Mês: ${dashboardMonth}`}
+                  </p>
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Total: {dashboardData.reduce((sum, d) => sum + d.count, 0)} pedidos
+                  </p>
+                </div>
+                {dashboardData.map(d => {
+                  const maxCount = Math.max(...dashboardData.map(dd => dd.count), 1)
+                  return (
+                    <div key={d.usuario_id} className="flex items-center gap-3">
+                      <div className="w-32 text-sm font-medium text-right truncate text-slate-700 dark:text-slate-300">{d.usuario_nome}</div>
+                      <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-7 overflow-hidden">
+                        <div
+                          className="bg-orange-500 h-7 rounded-full flex items-center justify-end pr-3 transition-all duration-500"
+                          style={{ width: `${Math.max((d.count / maxCount) * 100, 10)}%` }}
+                        >
+                          <span className="text-white text-xs font-bold">{d.count}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardContent className="p-0">
             <Table>
@@ -3842,6 +4052,11 @@ function App() {
                           <Pencil className="w-4 h-4" />
                         </Button>
                         {u.id !== currentUser?.id && <Button variant="ghost" size="sm" onClick={() => toggleUser(u.id, u.ativo)} className={u.ativo ? 'text-amber-600' : 'text-green-600'}>{u.ativo ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}</Button>}
+                        {u.id !== currentUser?.id && !u.ativo && (
+                          <Button variant="ghost" size="sm" onClick={() => { setDeletingUserId(u.id); setShowDeleteUserConfirm(true) }} className="text-red-500 hover:bg-red-50" title="Excluir usuário">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -3885,6 +4100,22 @@ function App() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowEditUser(false)}>Cancelar</Button>
               <Button onClick={saveEditUser} className="bg-orange-500 hover:bg-orange-600">Salvar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal de Confirmação de Exclusão de Usuário */}
+        <Dialog open={showDeleteUserConfirm} onOpenChange={setShowDeleteUserConfirm}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Confirmar exclusão</DialogTitle>
+              <DialogDescription>
+                Tem certeza que deseja excluir permanentemente o usuário <strong>{usuarios.find(u => u.id === deletingUserId)?.nome}</strong>? Esta ação não pode ser desfeita.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => { setShowDeleteUserConfirm(false); setDeletingUserId(null) }}>Cancelar</Button>
+              <Button variant="destructive" onClick={() => deletingUserId && deleteUser(deletingUserId)}>Excluir</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
