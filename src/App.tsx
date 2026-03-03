@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
 import {
@@ -89,6 +90,7 @@ interface Usuario {
   ativo: boolean
   criado_em: string
   criado_por?: string
+  ultimo_acesso?: string
 }
 
 interface Pedido {
@@ -637,9 +639,13 @@ function LoginScreen({ onLogin }: { onLogin: (u: Usuario) => void }) {
         return
       }
 
+      // Atualiza ultimo_acesso no login
+      await supabase.from('usuarios').update({ ultimo_acesso: new Date().toISOString() }).eq('id', data.id)
+
       const usuario: Usuario = {
         id: data.id, nome: data.nome, email: data.email, senha: data.senha,
-        tipo: data.tipo, ativo: data.ativo, criado_em: data.criado_em
+        tipo: data.tipo, ativo: data.ativo, criado_em: data.criado_em,
+        ultimo_acesso: new Date().toISOString()
       }
       localStorage.setItem(SESSION_KEY, JSON.stringify(usuario))
       onLogin(usuario)
@@ -790,13 +796,11 @@ function App() {
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
 
   // Estados para Dashboard de Performance
-  const [dashboardFilter, setDashboardFilter] = useState<'day' | 'month'>('month')
-  const [dashboardDate, setDashboardDate] = useState(getTodayInSaoPaulo())
   const [dashboardMonth, setDashboardMonth] = useState(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
-  const [dashboardData, setDashboardData] = useState<{usuario_id: string; usuario_nome: string; count: number}[]>([])
+  const [dashboardData, setDashboardData] = useState<{usuario_id: string; usuario_nome: string; dias: Record<number, number>; total: number}[]>([])
   const [dashboardLoading, setDashboardLoading] = useState(false)
 
   // Estados para Gerador de Orçamento
@@ -890,7 +894,7 @@ function App() {
         const { data: judicData } = await supabase.from('judicializacoes').select('*').eq('periodo_id', periodosData[0].id).order('criado_em', { ascending: false })
         if (judicData) setJudicializacoes(judicData)
 
-        const { data: enviosData } = await supabase.from('controle_envios').select('*').eq('periodo_id', periodosData[0].id).order('criado_em', { ascending: false })
+        const { data: enviosData } = await supabase.from('controle_envios').select('*').order('criado_em', { ascending: false })
         if (enviosData) setControleEnvios(enviosData)
 
         // Load THC / 2000 pedidos (all periods)
@@ -950,6 +954,18 @@ function App() {
     return () => { supabase.removeChannel(channel) }
   }, [currentUser, periodoAtual, pedidosPeriodoSelecionado, editingPedidoId])
 
+  // Heartbeat: atualiza ultimo_acesso a cada 2 minutos
+  useEffect(() => {
+    if (!currentUser) return
+    const supabase = getSupabase()
+    const updateLastSeen = () => {
+      supabase.from('usuarios').update({ ultimo_acesso: new Date().toISOString() }).eq('id', currentUser.id).then()
+    }
+    updateLastSeen()
+    const interval = setInterval(updateLastSeen, 2 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [currentUser])
+
   const loadPedidos = async () => {
     if (!periodoAtual) return
     const supabase = getSupabase()
@@ -980,9 +996,6 @@ function App() {
 
     const { data: judicData } = await supabase.from('judicializacoes').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
     if (judicData) setJudicializacoes(judicData)
-
-    const { data: enviosData } = await supabase.from('controle_envios').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
-    if (enviosData) setControleEnvios(enviosData)
   }
 
   const handlePedidosPeriodoSelect = async (id: string) => {
@@ -992,12 +1005,9 @@ function App() {
     const { data: pedidosData } = await supabase.from('pedidos').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
     if (pedidosData) setPedidos(pedidosData)
 
-    // Also load judic and envios for the selected period to keep other tabs in sync
+    // Also load judic for the selected period to keep other tabs in sync
     const { data: judicData } = await supabase.from('judicializacoes').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
     if (judicData) setJudicializacoes(judicData)
-
-    const { data: enviosData } = await supabase.from('controle_envios').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
-    if (enviosData) setControleEnvios(enviosData)
 
     setPedidosPeriodoSelecionado(true)
   }
@@ -1181,38 +1191,35 @@ function App() {
     try {
       const supabase = getSupabase()
 
-      let startDate: string
-      let endDate: string
-
-      if (dashboardFilter === 'day') {
-        startDate = dashboardDate
-        endDate = dashboardDate
-      } else {
-        const [year, month] = dashboardMonth.split('-').map(Number)
-        startDate = `${year}-${String(month).padStart(2, '0')}-01`
-        const lastDay = new Date(year, month, 0).getDate()
-        endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
-      }
+      const [year, month] = dashboardMonth.split('-').map(Number)
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`
+      const lastDay = new Date(year, month, 0).getDate()
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
       const { data: pedidosData } = await supabase
         .from('pedidos')
-        .select('criado_por')
+        .select('criado_por, data')
         .gte('data', startDate)
         .lte('data', endDate)
         .not('criado_por', 'is', null)
 
       if (pedidosData) {
-        const countMap = new Map<string, number>()
-        pedidosData.forEach((p: { criado_por: string | null }) => {
+        // Agrupa por usuário e dia
+        const userDaysMap = new Map<string, Record<number, number>>()
+        pedidosData.forEach((p: { criado_por: string | null; data: string }) => {
           if (p.criado_por) {
-            countMap.set(p.criado_por, (countMap.get(p.criado_por) || 0) + 1)
+            if (!userDaysMap.has(p.criado_por)) userDaysMap.set(p.criado_por, {})
+            const day = new Date(p.data + 'T12:00:00').getDate()
+            const dias = userDaysMap.get(p.criado_por)!
+            dias[day] = (dias[day] || 0) + 1
           }
         })
 
-        const result = Array.from(countMap.entries()).map(([userId, count]) => {
+        const result = Array.from(userDaysMap.entries()).map(([userId, dias]) => {
           const user = usuarios.find(u => u.id === userId)
-          return { usuario_id: userId, usuario_nome: user?.nome || 'Desconhecido', count }
-        }).sort((a, b) => b.count - a.count)
+          const total = Object.values(dias).reduce((s, c) => s + c, 0)
+          return { usuario_id: userId, usuario_nome: user?.nome || 'Desconhecido', dias, total }
+        }).sort((a, b) => b.total - a.total)
 
         setDashboardData(result)
       }
@@ -2697,7 +2704,7 @@ function App() {
             <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-4">{year}</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {periodosByYear[year]
-                .sort((a, b) => b.mes - a.mes)
+                .sort((a, b) => a.mes - b.mes)
                 .map(p => (
                 <Card
                   key={p.id}
@@ -2824,7 +2831,18 @@ function App() {
                     return (
                       <TableRow key={p.id} className={`group ${isBeingEditedByMe ? 'bg-orange-50 dark:bg-orange-900/20 ring-2 ring-orange-400 ring-inset' : ''} ${isPendingFill && !isBeingEditedByMe ? 'bg-yellow-50 dark:bg-yellow-900/10 opacity-60' : ''}`}>
                         <TableCell className="font-mono text-sm font-semibold align-top pt-3">
-                          {p.nr_pedido}
+                          {isAdmin && p.criado_por ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default">{p.nr_pedido}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Inserido por: {usuarios.find(u => u.id === p.criado_por)?.nome || 'Desconhecido'}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            p.nr_pedido
+                          )}
                           {isPendingFill && !isBeingEditedByMe && (
                             <span className="ml-2 text-xs text-yellow-600 font-normal">(em edição)</span>
                           )}
@@ -3627,7 +3645,20 @@ function App() {
                 ) : (
                   filteredThcPedidos.map(p => (
                     <TableRow key={p.id} className="group">
-                      <TableCell className="font-mono text-sm font-medium">{p.nr_pedido}</TableCell>
+                      <TableCell className="font-mono text-sm font-medium">
+                        {isAdmin && p.criado_por ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default">{p.nr_pedido}</span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Inserido por: {usuarios.find(u => u.id === p.criado_por)?.nome || 'Desconhecido'}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          p.nr_pedido
+                        )}
+                      </TableCell>
                       <TableCell>{p.cliente}</TableCell>
                       <TableCell>{p.vendedor}</TableCell>
                       <TableCell>{formatDateBR(p.data)}</TableCell>
@@ -3982,15 +4013,7 @@ function App() {
                 <CardTitle className="text-lg">Desempenho dos Colaboradores</CardTitle>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-                  <Button variant={dashboardFilter === 'month' ? 'default' : 'ghost'} size="sm" onClick={() => setDashboardFilter('month')} className="text-xs">Por Mês</Button>
-                  <Button variant={dashboardFilter === 'day' ? 'default' : 'ghost'} size="sm" onClick={() => setDashboardFilter('day')} className="text-xs">Por Dia</Button>
-                </div>
-                {dashboardFilter === 'day' ? (
-                  <Input type="date" value={dashboardDate} onChange={(e) => setDashboardDate(e.target.value)} className="w-[180px] h-8" />
-                ) : (
-                  <Input type="month" value={dashboardMonth} onChange={(e) => setDashboardMonth(e.target.value)} className="w-[180px] h-8" />
-                )}
+                <Input type="month" value={dashboardMonth} onChange={(e) => setDashboardMonth(e.target.value)} className="w-[180px] h-8" />
                 <Button onClick={loadDashboardData} size="sm" className="bg-orange-500 hover:bg-orange-600">
                   {dashboardLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Search className="w-4 h-4 mr-1" />}
                   Consultar
@@ -4004,34 +4027,50 @@ function App() {
                 <BarChart3 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-500 text-sm">Selecione um período e clique em Consultar</p>
               </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex justify-between items-center mb-4">
-                  <p className="text-sm text-slate-500">
-                    {dashboardFilter === 'day' ? `Dia: ${formatDateBR(dashboardDate)}` : `Mês: ${dashboardMonth}`}
-                  </p>
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Total: {dashboardData.reduce((sum, d) => sum + d.count, 0)} pedidos
-                  </p>
-                </div>
-                {dashboardData.map(d => {
-                  const maxCount = Math.max(...dashboardData.map(dd => dd.count), 1)
-                  return (
-                    <div key={d.usuario_id} className="flex items-center gap-3">
-                      <div className="w-32 text-sm font-medium text-right truncate text-slate-700 dark:text-slate-300">{d.usuario_nome}</div>
-                      <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-7 overflow-hidden">
-                        <div
-                          className="bg-orange-500 h-7 rounded-full flex items-center justify-end pr-3 transition-all duration-500"
-                          style={{ width: `${Math.max((d.count / maxCount) * 100, 10)}%` }}
-                        >
-                          <span className="text-white text-xs font-bold">{d.count}</span>
-                        </div>
+            ) : (() => {
+              const [year, month] = dashboardMonth.split('-').map(Number)
+              const daysInMonth = new Date(year, month, 0).getDate()
+              const allDays = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+              const globalMax = Math.max(...dashboardData.flatMap(d => Object.values(d.dias)), 1)
+              return (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm text-slate-500">Mês: {dashboardMonth}</p>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Total: {dashboardData.reduce((sum, d) => sum + d.total, 0)} pedidos
+                    </p>
+                  </div>
+                  {dashboardData.map(d => (
+                    <div key={d.usuario_id}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{d.usuario_nome}</span>
+                        <span className="text-xs text-slate-400">({d.total})</span>
+                      </div>
+                      <div className="flex items-end gap-[3px] h-16 overflow-x-auto">
+                        {allDays.map(day => {
+                          const count = d.dias[day] || 0
+                          const heightPct = count > 0 ? Math.max((count / globalMax) * 100, 8) : 0
+                          return (
+                            <div key={day} className="flex flex-col items-center" style={{ minWidth: '14px' }}>
+                              <div className="w-3 flex items-end" style={{ height: '48px' }}>
+                                {count > 0 && (
+                                  <div
+                                    className="w-full bg-orange-500 rounded-t-sm transition-all duration-300"
+                                    style={{ height: `${heightPct}%` }}
+                                    title={`${day}/${month}: ${count} pedido${count !== 1 ? 's' : ''}`}
+                                  />
+                                )}
+                              </div>
+                              <span className="text-[9px] text-slate-400 mt-0.5 leading-none">{day}</span>
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
-                  )
-                })}
-              </div>
-            )}
+                  ))}
+                </div>
+              )
+            })()}
           </CardContent>
         </Card>
 
@@ -4042,7 +4081,7 @@ function App() {
               <TableBody>
                 {usuarios.map(u => (
                   <TableRow key={u.id}>
-                    <TableCell><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center ${u.tipo === 'admin' ? 'bg-orange-100' : 'bg-slate-100'}`}>{u.tipo === 'admin' ? <Shield className="w-4 h-4 text-orange-600" /> : <User className="w-4 h-4" />}</div><span className="font-medium">{u.nome}</span>{u.id === currentUser?.id && <span className="text-xs text-orange-600">(você)</span>}</div></TableCell>
+                    <TableCell><div className="flex items-center gap-3"><div className="relative"><div className={`w-8 h-8 rounded-full flex items-center justify-center ${u.tipo === 'admin' ? 'bg-orange-100' : 'bg-slate-100'}`}>{u.tipo === 'admin' ? <Shield className="w-4 h-4 text-orange-600" /> : <User className="w-4 h-4" />}</div>{isAdmin && <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${u.ultimo_acesso && (Date.now() - new Date(u.ultimo_acesso).getTime()) < 10 * 60 * 1000 ? 'bg-green-500' : 'bg-slate-300'}`} title={u.ultimo_acesso && (Date.now() - new Date(u.ultimo_acesso).getTime()) < 10 * 60 * 1000 ? 'Online' : 'Offline'} />}</div><span className="font-medium">{u.nome}</span>{u.id === currentUser?.id && <span className="text-xs text-orange-600">(você)</span>}</div></TableCell>
                     <TableCell className="text-slate-500">{u.email}</TableCell>
                     <TableCell><span className={`px-2 py-1 rounded-full text-xs ${u.tipo === 'admin' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>{u.tipo === 'admin' ? 'Admin' : 'Colaborador'}</span></TableCell>
                     <TableCell><span className={`px-2 py-1 rounded-full text-xs flex items-center gap-1 w-fit ${u.ativo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{u.ativo ? <><CheckCircle2 className="w-3 h-3" /><span>Ativo</span></> : <><XCircle className="w-3 h-3" /><span>Inativo</span></>}</span></TableCell>
@@ -4695,7 +4734,9 @@ function App() {
 function AppWrapper() {
   return (
     <ErrorBoundary>
-      <App />
+      <TooltipProvider>
+        <App />
+      </TooltipProvider>
     </ErrorBoundary>
   )
 }

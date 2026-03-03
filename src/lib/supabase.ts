@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
   tipo VARCHAR(20) NOT NULL DEFAULT 'colaborador' CHECK (tipo IN ('admin', 'colaborador')),
   ativo BOOLEAN DEFAULT true,
   criado_em TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  criado_por UUID REFERENCES usuarios(id)
+  criado_por UUID REFERENCES usuarios(id),
+  ultimo_acesso TIMESTAMP WITH TIME ZONE
 );
 
 -- Create vendedores table
@@ -151,4 +152,7 @@ DROP POLICY IF EXISTS "Allow all orcamentos" ON orcamentos;
 
 CREATE POLICY "Allow all clientes" ON clientes FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all orcamentos" ON orcamentos FOR ALL USING (true) WITH CHECK (true);
+
+-- Add ultimo_acesso column to usuarios (for existing databases)
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultimo_acesso TIMESTAMP WITH TIME ZONE;
 `
