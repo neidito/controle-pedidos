@@ -1192,24 +1192,24 @@ function App() {
       const supabase = getSupabase()
 
       const [year, month] = dashboardMonth.split('-').map(Number)
-      const startDate = `${year}-${String(month).padStart(2, '0')}-01`
+      const startTimestamp = `${year}-${String(month).padStart(2, '0')}-01T00:00:00`
       const lastDay = new Date(year, month, 0).getDate()
-      const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+      const endTimestamp = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59`
 
       const { data: pedidosData } = await supabase
         .from('pedidos')
-        .select('criado_por, data')
-        .gte('data', startDate)
-        .lte('data', endDate)
+        .select('criado_por, criado_em')
+        .gte('criado_em', startTimestamp)
+        .lte('criado_em', endTimestamp)
         .not('criado_por', 'is', null)
 
       if (pedidosData) {
-        // Agrupa por usuário e dia
+        // Agrupa por usuário e dia de inserção
         const userDaysMap = new Map<string, Record<number, number>>()
-        pedidosData.forEach((p: { criado_por: string | null; data: string }) => {
+        pedidosData.forEach((p: { criado_por: string | null; criado_em: string }) => {
           if (p.criado_por) {
             if (!userDaysMap.has(p.criado_por)) userDaysMap.set(p.criado_por, {})
-            const day = new Date(p.data + 'T12:00:00').getDate()
+            const day = new Date(p.criado_em).getDate()
             const dias = userDaysMap.get(p.criado_por)!
             dias[day] = (dias[day] || 0) + 1
           }
