@@ -898,7 +898,7 @@ function App() {
         if (enviosData) setControleEnvios(enviosData)
 
         // Load THC / 2000 pedidos (all periods)
-        const { data: thcData } = await supabase.from('pedidos').select('*').eq('status', 'THC / 2000').order('criado_em', { ascending: false })
+        const { data: thcData } = await supabase.from('pedidos').select('*').eq('status', 'THC / 2000').order('criado_em', { ascending: false }).range(0, 49999)
         if (thcData) setThcPedidos(thcData)
       }
 
@@ -969,13 +969,13 @@ function App() {
   const loadPedidos = async () => {
     if (!periodoAtual) return
     const supabase = getSupabase()
-    const { data } = await supabase.from('pedidos').select('*').eq('periodo_id', periodoAtual).order('criado_em', { ascending: false })
+    const { data } = await supabase.from('pedidos').select('*').eq('periodo_id', periodoAtual).order('criado_em', { ascending: false }).range(0, 49999)
     if (data) setPedidos(data)
   }
 
   const loadThcPedidos = async () => {
     const supabase = getSupabase()
-    const { data } = await supabase.from('pedidos').select('*').eq('status', 'THC / 2000').order('criado_em', { ascending: false })
+    const { data } = await supabase.from('pedidos').select('*').eq('status', 'THC / 2000').order('criado_em', { ascending: false }).range(0, 49999)
     if (data) setThcPedidos(data)
   }
 
@@ -1002,7 +1002,7 @@ function App() {
     setPeriodoAtual(id)
     const supabase = getSupabase()
 
-    const { data: pedidosData } = await supabase.from('pedidos').select('*').eq('periodo_id', id).order('criado_em', { ascending: false })
+    const { data: pedidosData } = await supabase.from('pedidos').select('*').eq('periodo_id', id).order('criado_em', { ascending: false }).range(0, 49999)
     if (pedidosData) setPedidos(pedidosData)
 
     // Also load judic for the selected period to keep other tabs in sync
@@ -1118,14 +1118,7 @@ function App() {
   }
 
   const updatePedido = async (id: string, field: string, value: any) => {
-    // Colaboradores podem editar: status, rastreio, ou campos de pedidos que estão editando
-    const isEditingThisPedido = editingPedidoId === id
-    const canEdit = isAdmin || isEditingThisPedido || ['status', 'rastreio'].includes(field)
-    
-    if (!canEdit) { 
-      toast.error('Sem permissão para editar este campo'); 
-      return 
-    }
+    // Qualquer usuário logado pode editar qualquer campo
     
     const supabase = getSupabase()
     await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
@@ -2826,7 +2819,7 @@ function App() {
                     // Verifica se é um pedido vazio (reservado mas não preenchido)
                     const isPendingFill = !p.cliente && !p.produto
                     // Pode editar se: é admin, ou está editando este pedido, ou é colaborador editando campos permitidos
-                    const canEditAllFields = isAdmin || isBeingEditedByMe
+                    const canEditAllFields = true
                     
                     return (
                       <TableRow key={p.id} className={`group ${isBeingEditedByMe ? 'bg-orange-50 dark:bg-orange-900/20 ring-2 ring-orange-400 ring-inset' : ''} ${isPendingFill && !isBeingEditedByMe ? 'bg-yellow-50 dark:bg-yellow-900/10 opacity-60' : ''}`}>
