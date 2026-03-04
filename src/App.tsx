@@ -1567,6 +1567,48 @@ function App() {
     URL.revokeObjectURL(url)
   }
 
+  const exportPedidosCSV = () => {
+    if (pedidos.length === 0) {
+      toast.error('Nenhum pedido para exportar')
+      return
+    }
+
+    const headers = 'nr_pedido;cliente;medico;vendedor;data;produto;qtd;total;rastreio;status'
+
+    const escapeField = (value: string): string => {
+      if (value.includes(';') || value.includes('"') || value.includes('\n')) {
+        return '"' + value.replace(/"/g, '""') + '"'
+      }
+      return value
+    }
+
+    const rows = pedidos.map(p => {
+      return [
+        p.nr_pedido || '',
+        p.cliente || '',
+        p.medico || '',
+        p.vendedor || '',
+        p.data ? formatDateBR(p.data) : '',
+        p.produto || '',
+        String(p.qtd || 0),
+        formatCurrency(p.total || 0),
+        p.rastreio || '',
+        p.status || ''
+      ].map(escapeField).join(';')
+    })
+
+    const csv = headers + '\n' + rows.join('\n')
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const periodoNome = currentPeriodo?.nome || 'periodo'
+    const safeName = periodoNome.replace(/[^a-zA-Z0-9À-ÿ\s-]/g, '').replace(/\s+/g, '_')
+    a.download = `pedidos_${safeName}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // ==================== JUDICIALIZAÇÕES ====================
   const addJudicializacao = async (judic: Partial<Judicializacao>) => {
     const supabase = getSupabase()
@@ -2770,14 +2812,24 @@ function App() {
               <div className="flex items-center gap-3">
                 <CardTitle>Pedidos – {currentPeriodo?.nome}</CardTitle>
                 {isAdmin && (
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={() => setShowImportModal(true)}
-                    className="text-green-600 border-green-300 hover:bg-green-50"
-                  >
-                    <Upload className="w-4 h-4 mr-1" /> Importar
-                  </Button>
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowImportModal(true)}
+                      className="text-green-600 border-green-300 hover:bg-green-50"
+                    >
+                      <Upload className="w-4 h-4 mr-1" /> Importar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={exportPedidosCSV}
+                      className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                    >
+                      <Download className="w-4 h-4 mr-1" /> Exportar
+                    </Button>
+                  </>
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-3">
