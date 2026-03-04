@@ -21,6 +21,7 @@ import {
 import { getSupabase } from '@/lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { DeployNotification } from '@/components/DeployNotification'
 
 // Error Boundary - com tratamento especial para erros de DOM (removeChild/insertBefore)
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
@@ -4730,6 +4731,7 @@ function AppWrapper() {
       <TooltipProvider>
         <App />
       </TooltipProvider>
+      <DeployNotification />
     </ErrorBoundary>
   )
 }
