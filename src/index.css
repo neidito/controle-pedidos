@@ -35,6 +35,8 @@
   --status-atraso: 25 90% 55%;
   --status-doc-recusado: 340 70% 50%;
   --status-thc: 170 60% 40%;
+  --status-entregue: 145 65% 42%;
+  --status-concluido: 200 70% 50%;
 }
 
 .dark {
@@ -66,6 +68,8 @@
   --status-atraso: 25 80% 50%;
   --status-doc-recusado: 340 60% 50%;
   --status-thc: 170 50% 40%;
+  --status-entregue: 145 55% 45%;
+  --status-concluido: 200 60% 55%;
 }
 
 @layer base {
@@ -141,6 +145,18 @@
   border-color: hsl(var(--status-thc) / 0.3);
 }
 
+.status-entregue {
+  background-color: hsl(var(--status-entregue) / 0.15);
+  color: hsl(var(--status-entregue));
+  border-color: hsl(var(--status-entregue) / 0.3);
+}
+
+.status-concluido {
+  background-color: hsl(var(--status-concluido) / 0.15);
+  color: hsl(var(--status-concluido));
+  border-color: hsl(var(--status-concluido) / 0.3);
+}
+
 /* Card status borders */
 .card-separacao {
   border-color: hsl(var(--status-separacao) / 0.4);
@@ -168,6 +184,14 @@
 
 .card-thc {
   border-color: hsl(var(--status-thc) / 0.4);
+}
+
+.card-entregue {
+  border-color: hsl(var(--status-entregue) / 0.4);
+}
+
+.card-concluido {
+  border-color: hsl(var(--status-concluido) / 0.4);
 }
 
 /* Icon backgrounds */
@@ -206,6 +230,16 @@
   color: hsl(var(--status-thc));
 }
 
+.icon-bg-entregue {
+  background-color: hsl(var(--status-entregue) / 0.15);
+  color: hsl(var(--status-entregue));
+}
+
+.icon-bg-concluido {
+  background-color: hsl(var(--status-concluido) / 0.15);
+  color: hsl(var(--status-concluido));
+}
+
 /* Text colors for status */
 .text-separacao {
   color: hsl(var(--status-separacao));
@@ -233,6 +267,14 @@
 
 .text-thc {
   color: hsl(var(--status-thc));
+}
+
+.text-entregue {
+  color: hsl(var(--status-entregue));
+}
+
+.text-concluido {
+  color: hsl(var(--status-concluido));
 }
 
 /* Animation for sync indicator */
