@@ -833,7 +833,10 @@ function App() {
   const [clienteSearchTerm, setClienteSearchTerm] = useState('')
   const [logoBase64, setLogoBase64] = useState<string | null>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
-  
+
+  // Ref para evitar race condition: real-time sync não sobrescreve update em andamento
+  const updatingPedidoRef = useRef(false)
+
   // Copiar texto para clipboard
   const copyToClipboard = (text: string) => {
     if (!text || text === 'Código') return
@@ -942,6 +945,10 @@ function App() {
         // O sync será feito ao clicar em "Salvar"
         if (editingPedidoId) return
 
+        // Não recarrega enquanto um update local está em andamento (evita race condition
+        // onde o real-time sync sobrescreve o status recém-atualizado com dados antigos)
+        if (updatingPedidoRef.current) return
+
         setSyncing(true)
         try {
           if (periodoAtual && pedidosPeriodoSelecionado) {
@@ -983,11 +990,22 @@ function App() {
   }
 
   const updateThcPedido = async (id: string, field: string, value: any) => {
+    updatingPedidoRef.current = true
+
+    // Atualiza estado local imediatamente (otimista)
+    setThcPedidos(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p))
+    setPedidos(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p))
+
     const supabase = getSupabase()
-    await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
-    setThcPedidos(thcPedidos.map(p => p.id === id ? { ...p, [field]: value } : p))
-    // Also update in main pedidos list if loaded
-    setPedidos(pedidos.map(p => p.id === id ? { ...p, [field]: value } : p))
+    const { error } = await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
+
+    if (error) {
+      toast.error('Erro ao atualizar pedido')
+      await loadThcPedidos()
+      await loadPedidos()
+    }
+
+    setTimeout(() => { updatingPedidoRef.current = false }, 1500)
   }
 
   const handlePeriodoChange = async (id: string) => {
@@ -1122,10 +1140,24 @@ function App() {
 
   const updatePedido = async (id: string, field: string, value: any) => {
     // Qualquer usuário logado pode editar qualquer campo
-    
+
+    // Marca que um update está em andamento para evitar que o real-time sync sobrescreva
+    updatingPedidoRef.current = true
+
+    // Atualiza o estado local imediatamente (otimista) usando functional updater para evitar stale closure
+    setPedidos(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p))
+
     const supabase = getSupabase()
-    await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
-    setPedidos(pedidos.map(p => p.id === id ? { ...p, [field]: value } : p))
+    const { error } = await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
+
+    if (error) {
+      toast.error('Erro ao atualizar pedido')
+      // Reverte: recarrega dados do banco
+      await loadPedidos()
+    }
+
+    // Aguarda um curto período para ignorar o evento real-time gerado por este update
+    setTimeout(() => { updatingPedidoRef.current = false }, 1500)
   }
 
   const deletePedido = async (id: string) => {
