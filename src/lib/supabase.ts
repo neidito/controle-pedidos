@@ -155,4 +155,9 @@ CREATE POLICY "Allow all orcamentos" ON orcamentos FOR ALL USING (true) WITH CHE
 
 -- Add ultimo_acesso column to usuarios (for existing databases)
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultimo_acesso TIMESTAMP WITH TIME ZONE;
+
+-- Migration: atualizar CHECK constraint do status para incluir 'Entregue' e 'Concluído'
+ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS pedidos_status_check;
+ALTER TABLE pedidos ADD CONSTRAINT pedidos_status_check
+  CHECK (status IN ('Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso', 'Doc. Recusado', 'THC / 2000', 'Entregue', 'Concluído'));
 `

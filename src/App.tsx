@@ -1000,7 +1000,8 @@ function App() {
     const { error } = await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
 
     if (error) {
-      toast.error('Erro ao atualizar pedido')
+      console.error('Erro ao atualizar pedido THC:', error)
+      toast.error(`Erro ao atualizar pedido: ${error.message}`)
       await loadThcPedidos()
       await loadPedidos()
     }
@@ -1148,10 +1149,24 @@ function App() {
     setPedidos(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p))
 
     const supabase = getSupabase()
-    const { error } = await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
+    let { error } = await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
+
+    // Se falhar por CHECK constraint (ex: status novo não existe no banco), tenta corrigir automaticamente
+    if (error && error.code === '23514' && field === 'status') {
+      console.warn('CHECK constraint desatualizada, tentando corrigir...', error)
+      const { error: migrationError } = await supabase.rpc('exec_sql', {
+        sql: `ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS pedidos_status_check; ALTER TABLE pedidos ADD CONSTRAINT pedidos_status_check CHECK (status IN ('Em Separação', 'Em Trânsito', 'Anvisa', 'Problema Anvisa', 'Atraso', 'Doc. Recusado', 'THC / 2000', 'Entregue', 'Concluído'));`
+      })
+      if (!migrationError) {
+        // Retenta o update após corrigir a constraint
+        const retry = await supabase.from('pedidos').update({ [field]: value }).eq('id', id)
+        error = retry.error
+      }
+    }
 
     if (error) {
-      toast.error('Erro ao atualizar pedido')
+      console.error('Erro ao atualizar pedido:', error)
+      toast.error(`Erro ao atualizar pedido: ${error.message}`)
       // Reverte: recarrega dados do banco
       await loadPedidos()
     }
